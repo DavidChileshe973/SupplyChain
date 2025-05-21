@@ -36,7 +36,7 @@ export default function UserProfileInfo() {
             setError("User profile not found in database.");
           }
         }
-      } catch (err) {
+      } catch (_) {
         if (isMounted) {
           setProfile(null);
           setError("Please log in to view your profile.");

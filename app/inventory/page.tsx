@@ -71,7 +71,6 @@ function InventoryPage() {
   ]
   const [products, setProducts] = useState<Product[]>([])
   const [logs, setLogs] = useState<InventoryLog[]>([])
-  const [locations, setLocations] = useState<Location[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -100,7 +99,7 @@ function InventoryPage() {
         process.env.NEXT_PUBLIC_PRODUCTS_COLLECTION_ID!
       )
       setProducts(response.documents as unknown as Product[])
-    } catch (error) {
+    } catch (_) {
       toast.error('Failed to fetch products from database')
     }
   }
@@ -113,7 +112,7 @@ function InventoryPage() {
         process.env.NEXT_PUBLIC_INVENTORY_LOG_COLLECTION_ID!
       )
       setLogs(response.documents as unknown as InventoryLog[])
-    } catch (error) {
+    } catch (_) {
       toast.error('Failed to fetch inventory logs')
     }
   }
@@ -126,7 +125,6 @@ function InventoryPage() {
       setCurrentUserId(user.$id || user.id)
       setNewProduct(prev => ({ ...prev, user_id: user.$id || user.id }))
     }
-    setLocations(dummyLocations)
     fetchProducts()
     fetchLogs()
   }, [])

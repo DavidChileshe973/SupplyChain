@@ -24,7 +24,7 @@ export default function Login() {
     setError("");
     try {
       // Use Appwrite's built-in session management with email/password only
-      const session = await account.createSession(form.email, form.password);
+      await account.createSession(form.email, form.password);
       
       // Fetch user details
       const user = await account.get();
@@ -37,7 +37,7 @@ export default function Login() {
       
       // Redirect to dashboard
       router.push("/dashboard");
-    } catch (err: any) {
+    } catch (err: Error) {
       console.error("Login error:", err);
       // More specific error message based on the error
       if (err.message) {
@@ -116,7 +116,7 @@ export default function Login() {
             </button>
           </form>
           <div className="text-center mt-4 text-sm text-gray-400">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href="/auth/signup" className="text-indigo-400 hover:text-indigo-300 hover:underline">
               Sign up
             </Link>

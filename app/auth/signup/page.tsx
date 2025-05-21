@@ -77,7 +77,7 @@ export default function Register() {
       setTimeout(() => {
         router.push("/auth/login");
       }, 2000);
-    } catch (error: any) {
+    } catch (error: Error) {
       setMessage(`Error: ${error.message || "Registration failed."}`);
     } finally {
       setLoading(false);

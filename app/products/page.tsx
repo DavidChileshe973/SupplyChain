@@ -120,7 +120,7 @@ const ProductsPage: React.FC = () => {
 
   useEffect(() => {
     fetchProducts()
-  }, [searchQuery, categoryFilter])
+  }, [searchQuery, categoryFilter, fetchProducts])
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">

@@ -161,7 +161,7 @@ const ShipmentsPage: React.FC = () => {
         cost: newShipment.cost || 0, // Add cost field
       }
 
-      const response = await databases.createDocument(
+      await databases.createDocument(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
         process.env.NEXT_PUBLIC_SHIPMENTS_COLLECTION_ID!,
         ID.unique(),

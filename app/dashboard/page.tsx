@@ -228,7 +228,7 @@ export default function Dashboard() {
       // Fetch the real driving route
       const routeCoords = await getRoute(origin, dest);
       setRoute(routeCoords);
-    } catch (err) {
+    } catch (_) {
       setGeocodeError("Error geocoding or routing.");
     }
     setGeocoding(false);

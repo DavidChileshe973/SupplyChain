@@ -14,7 +14,7 @@ import {
   GlobeAltIcon
 } from '@heroicons/react/24/solid';
 import { usePathname } from 'next/navigation';
-import toast, { Toaster } from 'react-hot-toast';
+import { Toaster } from 'react-hot-toast';
 import { account } from '@/lib/appwrite';
 
 // Initialize Appwrite
@@ -113,13 +113,13 @@ export default function SettingsPage() {
           dateFormat: userData.dateFormat,
           language: userData.language
         });
-      } catch (err) {
+      } catch (_) {
         setError('Failed to load user settings');
       }
     };
 
     fetchUserData();
-  }, [user]);
+  }, []);
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,7 +160,7 @@ export default function SettingsPage() {
       }
 
       setSuccess('Profile updated successfully!');
-    } catch (err) {
+    } catch (_) {
       setError('An error occurred while updating your profile');
     }
   };
@@ -188,7 +188,7 @@ export default function SettingsPage() {
       );
 
       setSuccess('Notification preferences updated successfully!');
-    } catch (err) {
+    } catch (_) {
       setError('An error occurred while updating your notification preferences');
     }
   };
