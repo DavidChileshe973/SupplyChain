@@ -2,27 +2,36 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { 
-  TruckIcon, 
-  CheckCircleIcon, 
-  ExclamationTriangleIcon, 
-  CubeIcon, 
-  MapIcon 
+import {
+  TruckIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  CubeIcon,
 } from "@heroicons/react/24/solid";
 import { databases } from "@/lib/appwrite";
 import { Query } from "appwrite";
-import { LatLngExpression } from "leaflet";
-import L from "leaflet";
+import type { Icon } from "leaflet";
 import LeafletStyles from "@/components/LeafletStyles";
 import LogoutButton from "@/components/LogoutButton";
 import UserInfo from "@/components/UserInfo";
 
-
 // Dynamically import Leaflet components to avoid SSR issues
-const MapContainer = dynamic(() => import("react-leaflet").then(mod => mod.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import("react-leaflet").then(mod => mod.TileLayer), { ssr: false });
-const Marker = dynamic(() => import("react-leaflet").then(mod => mod.Marker), { ssr: false });
-const Polyline = dynamic(() => import("react-leaflet").then(mod => mod.Polyline), { ssr: false });
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((mod) => mod.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((mod) => mod.TileLayer),
+  { ssr: false }
+);
+const Marker = dynamic(
+  () => import("react-leaflet").then((mod) => mod.Marker),
+  { ssr: false }
+);
+const Polyline = dynamic(
+  () => import("react-leaflet").then((mod) => mod.Polyline),
+  { ssr: false }
+);
 
 type Shipment = {
   $id: string;
@@ -30,7 +39,7 @@ type Shipment = {
   status: string;
   origin: string;
   destination: string;
-  cost: number;
+  cost?: number;
   created_at: string;
   transitTime?: number;
   location?: { lat: number; lng: number } | null;
@@ -48,26 +57,15 @@ type AnalyticsData = {
   };
 };
 
-// --- Custom Marker Icons ---
-const originIcon = new L.Icon({
-  iconUrl: "/origin.png",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-const destinationIcon = new L.Icon({
-  iconUrl: "/destination.png",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-const vesselIcon = new L.Icon({
-  iconUrl: "/vessel.png",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
-
 // --- Geocoding (OpenStreetMap Nominatim) ---
-async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+async function geocode(
+  address: string
+): Promise<{ lat: number; lng: number } | null> {
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+      address
+    )}`
+  );
   const data = await res.json();
   if (data && data.length > 0) {
     return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
@@ -86,7 +84,9 @@ async function getRoute(
   if (!res.ok) throw new Error("Route fetch failed");
   const data = await res.json();
   // Decode geometry (polyline)
-  return data.features[0].geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng]);
+  return data.features[0].geometry.coordinates.map(
+    ([lng, lat]: [number, number]) => [lat, lng]
+  );
 }
 
 // --- Analytics Data Fetch ---
@@ -104,29 +104,40 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    const activeShipments = shipments.filter(s =>
+    const activeShipments = shipments.filter((s) =>
       ["In Transit", "Processing"].includes(s.status)
     ).length;
 
-    const deliveredThisMonth = shipments.filter(s => {
+    const deliveredThisMonth = shipments.filter((s) => {
       const createdDate = new Date(s.created_at);
-      return s.status === "Delivered" &&
+      return (
+        s.status === "Delivered" &&
         createdDate.getMonth() === currentMonth &&
-        createdDate.getFullYear() === currentYear;
+        createdDate.getFullYear() === currentYear
+      );
     }).length;
 
-    const delayedShipments = shipments.filter(s => s.status === "Delayed").length;
+    const delayedShipments = shipments.filter(
+      (s) => s.status === "Delayed"
+    ).length;
 
-    const totalInventoryValue = shipments.reduce((acc, s) => acc + (s.cost || 0), 0);
+    const totalInventoryValue = shipments.reduce(
+      (acc, s) => acc + (s.cost || 0),
+      0
+    );
 
     const recentShipments = shipments
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
       .slice(0, 5);
 
     // Example static live location
-    const liveLocation = recentShipments.length > 0
-      ? { lat: -22.9068, lng: -43.1729 }
-      : undefined;
+    const liveLocation =
+      recentShipments.length > 0
+        ? { lat: -22.9068, lng: -43.1729 }
+        : undefined;
 
     return {
       activeShipments,
@@ -134,7 +145,7 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
       delayedShipments,
       totalInventoryValue,
       recentShipments,
-      liveLocation
+      liveLocation,
     };
   } catch (error) {
     console.error("Analytics data fetch error:", error);
@@ -148,8 +159,13 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   // Live tracking
-  const [trackingShipment, setTrackingShipment] = useState<Shipment | null>(null);
-  const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [trackingShipment, setTrackingShipment] = useState<Shipment | null>(
+    null
+  );
+  const [liveLocation, setLiveLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
 
   // Origin/destination & routing
@@ -164,6 +180,37 @@ export default function Dashboard() {
   // Vessel animation state
   const [vesselIndex, setVesselIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+
+  // Leaflet icons (client only)
+  const [icons, setIcons] = useState<{
+    originIcon: Icon;
+    destinationIcon: Icon;
+    vesselIcon: Icon;
+  } | null>(null);
+
+  useEffect(() => {
+    // Only run on client
+    (async () => {
+      const L = await import("leaflet");
+      setIcons({
+        originIcon: L.icon({
+          iconUrl: "/origin-marker.png",
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+        }),
+        destinationIcon: L.icon({
+          iconUrl: "/destination-marker.png",
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+        }),
+        vesselIcon: L.icon({
+          iconUrl: "/vessel-marker.png",
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
+        }),
+      });
+    })();
+  }, []);
 
   // Fetch analytics
   const loadData = useCallback(async () => {
@@ -197,10 +244,13 @@ export default function Dashboard() {
     }
   }, []);
 
-  const onTrackClick = useCallback((shipment: Shipment) => {
-    setTrackingShipment(shipment);
-    fetchLiveLocation(shipment.tracking_id);
-  }, [fetchLiveLocation]);
+  const onTrackClick = useCallback(
+    (shipment: Shipment) => {
+      setTrackingShipment(shipment);
+      fetchLiveLocation(shipment.tracking_id);
+    },
+    [fetchLiveLocation]
+  );
 
   const resetTracking = useCallback(() => {
     setTrackingShipment(null);
@@ -216,7 +266,7 @@ export default function Dashboard() {
     try {
       const [origin, dest] = await Promise.all([
         geocode(originInput),
-        geocode(destinationInput)
+        geocode(destinationInput),
       ]);
       setOriginCoord(origin);
       setDestinationCoord(dest);
@@ -255,23 +305,25 @@ export default function Dashboard() {
     setIsAnimating(false);
   }, [route]);
 
-  if (loading) return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
-      Loading dashboard...
-    </div>
-  );
-  if (!analyticsData) return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
-      Error loading dashboard
-    </div>
-  );
+  if (loading)
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
+        Loading dashboard...
+      </div>
+    );
+  if (!analyticsData)
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
+        Error loading dashboard
+      </div>
+    );
 
   const {
     activeShipments,
     deliveredThisMonth,
     delayedShipments,
     totalInventoryValue,
-    recentShipments
+    recentShipments,
   } = analyticsData;
 
   return (
@@ -279,17 +331,35 @@ export default function Dashboard() {
       {/* --- NAVIGATION BAR --- */}
       <nav className="bg-gray-950 shadow">
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-          <a href="dashboard.php" className="flex items-center gap-2 font-bold text-2xl text-indigo-400">
+          <a
+            href="/dashboard"
+            className="flex items-center gap-2 font-bold text-2xl text-indigo-400"
+          >
             <i className="fas fa-box"></i>
             Supply<span className="text-white">Flow</span>
           </a>
           <div className="flex gap-6">
-            <a href="dashboard" className="text-indigo-400 font-semibold border-b-2 border-indigo-400 pb-1">Dashboard</a>
-            <a href="shipments" className="hover:text-indigo-400">Shipments</a>
-            <a href="inventory" className="hover:text-indigo-400">Inventory</a>
-            <a href="analytics" className="hover:text-indigo-400">Analytics</a>
-            <a href="products" className="hover:text-indigo-400">Products</a>
-            <a href="settings" className="hover:text-indigo-400">Settings</a>
+            <a
+              href="/dashboard"
+              className="text-indigo-400 font-semibold border-b-2 border-indigo-400 pb-1"
+            >
+              Dashboard
+            </a>
+            <a href="/shipments" className="hover:text-indigo-400">
+              Shipments
+            </a>
+            <a href="/inventory" className="hover:text-indigo-400">
+              Inventory
+            </a>
+            <a href="/analytics" className="hover:text-indigo-400">
+              Analytics
+            </a>
+            <a href="/products" className="hover:text-indigo-400">
+              Products
+            </a>
+            <a href="/settings" className="hover:text-indigo-400">
+              Settings
+            </a>
             <LogoutButton />
             <UserInfo />
           </div>
@@ -304,22 +374,34 @@ export default function Dashboard() {
         <aside className="bg-gray-800 w-64 min-h-screen py-8 px-4 hidden md:block">
           <ul className="space-y-2">
             <li>
-              <a href="#" className="flex items-center gap-3 px-4 py-2 rounded bg-gray-900 text-indigo-400 font-semibold">
+              <a
+                href="#"
+                className="flex items-center gap-3 px-4 py-2 rounded bg-gray-900 text-indigo-400 font-semibold"
+              >
                 <i className="fas fa-tachometer-alt"></i> Overview
               </a>
             </li>
             <li>
-              <a href="shipments.php" className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400">
+              <a
+                href="/shipments"
+                className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400"
+              >
                 <i className="fas fa-truck"></i> Shipments
               </a>
             </li>
             <li>
-              <a href="inventory.php" className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400">
+              <a
+                href="/inventory"
+                className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400"
+              >
                 <i className="fas fa-boxes"></i> Inventory
               </a>
             </li>
             <li>
-              <a href="analytics.html" className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400">
+              <a
+                href="/analytics"
+                className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400"
+              >
                 <i className="fas fa-chart-line"></i> Analytics
               </a>
             </li>
@@ -331,12 +413,15 @@ export default function Dashboard() {
           {/* Origin/Destination Form */}
           <div className="bg-gray-800 rounded-lg p-6 shadow-lg mb-6">
             <h2 className="text-xl font-bold mb-4">Show Route on Map</h2>
-            <form onSubmit={handleShowOnMap} className="flex flex-col md:flex-row gap-4 items-center">
+            <form
+              onSubmit={handleShowOnMap}
+              className="flex flex-col md:flex-row gap-4 items-center"
+            >
               <input
                 type="text"
                 placeholder="Origin (e.g. New York)"
                 value={originInput}
-                onChange={e => setOriginInput(e.target.value)}
+                onChange={(e) => setOriginInput(e.target.value)}
                 className="px-3 py-2 rounded border border-gray-600 bg-gray-900 text-white w-full md:w-1/3"
                 required
               />
@@ -344,7 +429,7 @@ export default function Dashboard() {
                 type="text"
                 placeholder="Destination (e.g. Boston)"
                 value={destinationInput}
-                onChange={e => setDestinationInput(e.target.value)}
+                onChange={(e) => setDestinationInput(e.target.value)}
                 className="px-3 py-2 rounded border border-gray-600 bg-gray-900 text-white w-full md:w-1/3"
                 required
               />
@@ -356,11 +441,13 @@ export default function Dashboard() {
                 {geocoding ? "Locating..." : "Show on Map"}
               </button>
             </form>
-            {geocodeError && <div className="text-red-500 mt-2">{geocodeError}</div>}
+            {geocodeError && (
+              <div className="text-red-500 mt-2">{geocodeError}</div>
+            )}
           </div>
 
           {/* Show Map if Both Locations Are Set and Route is Ready */}
-          {originCoord && destinationCoord && route.length > 0 && (
+          {icons && originCoord && destinationCoord && route.length > 0 && (
             <div className="bg-gray-800 rounded-lg p-4 shadow-lg mb-6">
               {/* Vessel Animation Button */}
               {!isAnimating && (
@@ -375,19 +462,25 @@ export default function Dashboard() {
                 </button>
               )}
               <MapContainer
-                center={route[Math.floor(route.length / 2)] as LatLngExpression}
+                center={route[Math.floor(route.length / 2)] as [number, number]}
                 zoom={7}
                 style={{ height: 350, width: "100%" }}
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <Marker position={[originCoord.lat, originCoord.lng]} icon={originIcon} />
-                <Marker position={[destinationCoord.lat, destinationCoord.lng]} icon={destinationIcon} />
+                <Marker
+                  position={[originCoord.lat, originCoord.lng]}
+                  icon={icons.originIcon}
+                />
+                <Marker
+                  position={[destinationCoord.lat, destinationCoord.lng]}
+                  icon={icons.destinationIcon}
+                />
                 <Polyline positions={route} color="blue" />
                 {/* Vessel Marker */}
                 {route.length > 0 && (
                   <Marker
                     position={route[vesselIndex]}
-                    icon={vesselIcon}
+                    icon={icons.vesselIcon}
                   />
                 )}
               </MapContainer>
@@ -401,110 +494,137 @@ export default function Dashboard() {
                 <TruckIcon className="h-8 w-8 text-indigo-500" />
                 <span className="text-sm text-gray-400">Active Shipments</span>
               </div>
-              <div className="text-3xl font-bold text-white">{activeShipments}</div>
-              <div className="text-sm text-green-500 mt-2">+12% from last week</div>
+              <div className="text-3xl font-bold text-white">
+                {activeShipments}
+              </div>
+              <div className="text-sm text-green-500 mt-2">
+                +12% from last week
+              </div>
             </div>
             <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
               <div className="flex justify-between items-center mb-4">
                 <CheckCircleIcon className="h-8 w-8 text-green-500" />
-                <span className="text-sm text-gray-400">Delivered This Month</span>
+                <span className="text-sm text-gray-400">
+                  Delivered This Month
+                </span>
               </div>
-              <div className="text-3xl font-bold text-white">{deliveredThisMonth}</div>
-              <div className="text-sm text-green-500 mt-2">+5% from last month</div>
+              <div className="text-3xl font-bold text-white">
+                {deliveredThisMonth}
+              </div>
+              <div className="text-sm text-green-500 mt-2">
+                +5% from last month
+              </div>
             </div>
             <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
               <div className="flex justify-between items-center mb-4">
                 <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
-                <span className="text-sm text-gray-400">Delayed Shipments</span>
+                <span className="text-sm text-gray-400">
+                  Delayed Shipments
+                </span>
               </div>
-              <div className="text-3xl font-bold text-white">{delayedShipments}</div>
-              <div className="text-sm text-red-500 mt-2">-2 from yesterday</div>
+              <div className="text-3xl font-bold text-white">
+                {delayedShipments}
+              </div>
+              <div className="text-sm text-red-500 mt-2">
+                -2% from last week
+              </div>
             </div>
             <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
               <div className="flex justify-between items-center mb-4">
-                <CubeIcon className="h-8 w-8 text-blue-500" />
-                <span className="text-sm text-gray-400">Total Inventory Value</span>
+                <CubeIcon className="h-8 w-8 text-yellow-500" />
+                <span className="text-sm text-gray-400">
+                  Inventory Value
+                </span>
               </div>
-              <div className="text-3xl font-bold text-white">${totalInventoryValue.toLocaleString()}</div>
-              <div className="text-sm text-green-500 mt-2">+7% from last week</div>
+              <div className="text-3xl font-bold text-white">
+                ${totalInventoryValue.toLocaleString()}
+              </div>
+              <div className="text-sm text-yellow-500 mt-2">
+                +3% from last month
+              </div>
             </div>
           </div>
 
           {/* Recent Shipments Table */}
           <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Recent Shipments</h2>
-              <a href="/shipments" className="text-indigo-500 hover:underline">View All</a>
-            </div>
-            <table className="w-full text-left">
-              <thead className="border-b border-gray-700">
-                <tr>
-                  <th className="py-3 px-4 text-gray-400">Tracking ID</th>
-                  <th className="py-3 px-4 text-gray-400">Origin</th>
-                  <th className="py-3 px-4 text-gray-400">Destination</th>
-                  <th className="py-3 px-4 text-gray-400">Status</th>
-                  <th className="py-3 px-4 text-gray-400">Cost</th>
-                  <th className="py-3 px-4 text-gray-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentShipments.map((shipment: Shipment) => (
-                  <tr key={shipment.$id} className="border-b border-gray-700 hover:bg-gray-700/50">
-                    <td className="py-3 px-4">{shipment.tracking_id}</td>
-                    <td className="py-3 px-4">{shipment.origin}</td>
-                    <td className="py-3 px-4">{shipment.destination}</td>
-                    <td className="py-3 px-4">
-                      <span className={`
-                        px-2 py-1 rounded text-xs font-semibold
-                        ${shipment.status === "Delivered" ? "bg-green-500/20 text-green-500" :
-                          shipment.status === "Delayed" ? "bg-red-500/20 text-red-500" :
-                            "bg-yellow-500/20 text-yellow-500"}
-                      `}>
-                        {shipment.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">${(shipment.cost || 0).toLocaleString()}</td>
-                    <td className="py-3 px-4">
-                      <button
-                        onClick={() => onTrackClick(shipment)}
-                        className="flex items-center gap-1 text-indigo-500 hover:underline"
-                        disabled={loadingLocation && trackingShipment?.tracking_id === shipment.tracking_id}
-                      >
-                        <MapIcon className="h-4 w-4" />
-                        {loadingLocation && trackingShipment?.tracking_id === shipment.tracking_id ? "Loading..." : "Track"}
-                      </button>
-                    </td>
+            <h2 className="text-xl font-bold mb-4">Recent Shipments</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2">Tracking ID</th>
+                    <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2">Origin</th>
+                    <th className="px-4 py-2">Destination</th>
+                    <th className="px-4 py-2">Cost</th>
+                    <th className="px-4 py-2">Created At</th>
+                    <th className="px-4 py-2">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recentShipments.map((shipment) => (
+                    <tr key={shipment.$id} className="border-t border-gray-700">
+                      <td className="px-4 py-2">{shipment.tracking_id}</td>
+                      <td className="px-4 py-2">{shipment.status}</td>
+                      <td className="px-4 py-2">{shipment.origin}</td>
+                      <td className="px-4 py-2">{shipment.destination}</td>
+                      <td className="px-4 py-2">
+                        ${shipment.cost?.toLocaleString() ?? "N/A"}
+                      </td>
+                      <td className="px-4 py-2">
+                        {new Date(shipment.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-2">
+                        <button
+                          className="px-3 py-1 bg-blue-600 text-white rounded"
+                          onClick={() => onTrackClick(shipment)}
+                        >
+                          Track
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          {/* Live Location Modal */}
-          {trackingShipment && (
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 w-[400px]">
-                <h2 className="text-xl font-bold mb-2 text-black">
-                  Live Location: {trackingShipment.tracking_id}
-                </h2>
-                {loadingLocation && <p className="text-black">Loading location...</p>}
-                {!loadingLocation && liveLocation && (
-                  <MapContainer
-                    center={[liveLocation.lat, liveLocation.lng] as LatLngExpression}
-                    zoom={13}
-                    style={{ height: 300, width: "100%" }}
-                  >
-                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    <Marker position={[liveLocation.lat, liveLocation.lng] as LatLngExpression} />
-                  </MapContainer>
-                )}
-                {!loadingLocation && !liveLocation && <p className="text-black">Location not available.</p>}
+          {/* Live Shipment Location Modal */}
+          {icons && trackingShipment && (
+            <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+              <div className="bg-gray-900 rounded-lg p-8 shadow-lg w-full max-w-lg relative">
                 <button
-                  className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded"
+                  className="absolute top-2 right-2 text-gray-400 hover:text-white"
                   onClick={resetTracking}
                 >
-                  Close
+                  &times;
                 </button>
+                <h2 className="text-xl font-bold mb-4">
+                  Live Location for {trackingShipment.tracking_id}
+                </h2>
+                {loadingLocation ? (
+                  <div>Loading location...</div>
+                ) : liveLocation ? (
+                  <div className="h-64">
+                    <MapContainer
+                      center={
+                        [liveLocation.lat, liveLocation.lng] as [number, number]
+                      }
+                      zoom={10}
+                      style={{ height: "100%", width: "100%" }}
+                    >
+                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                      <Marker
+                        position={[liveLocation.lat, liveLocation.lng]}
+                        icon={icons.vesselIcon}
+                      />
+                    </MapContainer>
+                  </div>
+                ) : (
+                  <div className="text-red-500">
+                    Could not fetch live location.
+                  </div>
+                )}
               </div>
             </div>
           )}
