@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { databases } from '@/lib/appwrite';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);

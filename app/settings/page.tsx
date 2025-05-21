@@ -85,12 +85,13 @@ export default function SettingsPage() {
     // Fetch user data from Appwrite
     const fetchUserData = async () => {
       try {
-        if (!user) return;
+        const session = await account.get();
+        if (!session) return;
         
         const userData = await databases.getDocument(
           process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
           process.env.NEXT_PUBLIC_APPWRITE_USERS_COLLECTION_ID!,
-          user.$id
+          session.$id
         );
 
         setUserData({
@@ -113,7 +114,8 @@ export default function SettingsPage() {
           dateFormat: userData.dateFormat,
           language: userData.language
         });
-      } catch (_) {
+      } catch (error) {
+        console.error('Error fetching user data:', error);
         setError('Failed to load user settings');
       }
     };
@@ -160,7 +162,8 @@ export default function SettingsPage() {
       }
 
       setSuccess('Profile updated successfully!');
-    } catch (_) {
+    } catch (error) {
+      console.error('Error updating profile:', error);
       setError('An error occurred while updating your profile');
     }
   };
@@ -188,7 +191,8 @@ export default function SettingsPage() {
       );
 
       setSuccess('Notification preferences updated successfully!');
-    } catch (_) {
+    } catch (error) {
+      console.error('Error updating notification preferences:', error);
       setError('An error occurred while updating your notification preferences');
     }
   };
@@ -196,6 +200,16 @@ export default function SettingsPage() {
   const validateEmail = (email: string): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
+
+  async function handleLogout(event: React.MouseEvent<HTMLAnchorElement, MouseEvent>) {
+    event.preventDefault();
+    try {
+      await account.deleteSession('current');
+      window.location.href = '/auth/login';
+    } catch {
+      setError('Logout failed. Please try again.');
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">

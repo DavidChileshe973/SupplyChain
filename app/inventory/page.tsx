@@ -38,11 +38,6 @@ interface InventoryLog {
   created_at: string
 }
 
-interface Location {
-  id: number
-  name: string
-  address: string
-}
 
 interface Transaction {
   productId: string
@@ -51,13 +46,6 @@ interface Transaction {
   reason?: string
 }
 
-const dummyLocations: Location[] = [
-  {
-    id: 1,
-    name: 'Main Warehouse',
-    address: '123 Storage St'
-  }
-]
 
 function InventoryPage() {
   const pathname = usePathname()
@@ -99,7 +87,7 @@ function InventoryPage() {
         process.env.NEXT_PUBLIC_PRODUCTS_COLLECTION_ID!
       )
       setProducts(response.documents as unknown as Product[])
-    } catch (_) {
+    } catch (error) {
       toast.error('Failed to fetch products from database')
     }
   }
@@ -112,7 +100,8 @@ function InventoryPage() {
         process.env.NEXT_PUBLIC_INVENTORY_LOG_COLLECTION_ID!
       )
       setLogs(response.documents as unknown as InventoryLog[])
-    } catch (_) {
+    } catch (error) {
+      console.error("Error fetching inventory logs:", error)
       toast.error('Failed to fetch inventory logs')
     }
   }

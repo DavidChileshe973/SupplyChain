@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
 
     const data = await orsRes.json();
     return NextResponse.json(data, { status: orsRes.status });
-  } catch (_) {
+  } catch (error) {
+    console.error("Error fetching route:", error);
     return NextResponse.json({ error: "Failed to fetch route" }, { status: 500 });
   }
 }

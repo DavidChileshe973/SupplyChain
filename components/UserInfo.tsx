@@ -36,7 +36,8 @@ export default function UserProfileInfo() {
             setError("User profile not found in database.");
           }
         }
-      } catch (_) {
+      } catch (error) {
+        console.error("Error fetching user profile:", error);
         if (isMounted) {
           setProfile(null);
           setError("Please log in to view your profile.");
