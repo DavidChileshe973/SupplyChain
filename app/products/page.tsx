@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Client, Databases, Query } from 'appwrite'
 import { PlusIcon, MagnifyingGlassIcon, HomeIcon, InboxIcon, TruckIcon, ChartBarIcon, CogIcon } from '@heroicons/react/24/solid'
 import toast, { Toaster } from 'react-hot-toast'
@@ -43,7 +43,7 @@ const ProductsPage: React.FC = () => {
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null)
 
   // Fetch Products
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const response = await databases.listDocuments(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
@@ -58,7 +58,7 @@ const ProductsPage: React.FC = () => {
       toast.error('Failed to fetch products')
       console.error(error)
     }
-  }
+  }, [searchQuery, categoryFilter])
 
   // Add Product
   const handleAddProduct = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -120,7 +120,7 @@ const ProductsPage: React.FC = () => {
 
   useEffect(() => {
     fetchProducts()
-  }, [searchQuery, categoryFilter, fetchProducts])
+  }, [fetchProducts])
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">

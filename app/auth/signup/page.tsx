@@ -14,6 +14,7 @@ import {
   EyeSlashIcon,
 } from "@heroicons/react/24/outline";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 
 export default function Register() {
   const [fullName, setFullName] = useState("");
@@ -36,7 +37,6 @@ export default function Register() {
     if (password !== confirmPassword) {
       setMessage("Error: Passwords do not match.");
       return;
-    }
 
     setLoading(true);
 
@@ -77,10 +77,10 @@ export default function Register() {
       setTimeout(() => {
         router.push("/auth/login");
       }, 2000);
-    } catch (error: Error) {
-      setMessage(`Error: ${error.message || "Registration failed."}`);
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      toast.error('Failed to update product')
+      console.error(error)
+    }
     }
   }
 

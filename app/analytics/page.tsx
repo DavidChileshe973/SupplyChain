@@ -94,7 +94,7 @@ type AnalyticsData = {
 
 // --- Data Fetching & Analytics ---
 
-export const fetchAnalyticsData = async (): Promise<AnalyticsData | null> => {
+const fetchAnalyticsData = async (): Promise<AnalyticsData | null> => {
   try {
 
     const shipmentResponse = await databases.listDocuments(

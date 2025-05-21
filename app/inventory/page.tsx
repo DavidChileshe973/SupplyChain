@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, FormEvent, useEffect } from 'react'
+import React, { useState, FormEvent, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { toast, Toaster } from 'react-hot-toast'
@@ -80,7 +80,7 @@ function InventoryPage() {
   })
 
   // Fetch products from Appwrite
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const response = await databases.listDocuments(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
@@ -88,9 +88,10 @@ function InventoryPage() {
       )
       setProducts(response.documents as unknown as Product[])
     } catch (error) {
-      toast.error('Failed to fetch products from database')
+      toast.error('Failed to add product')
+      console.error(error)
     }
-  }
+  }, [])
 
   // Fetch inventory logs from Appwrite
   const fetchLogs = async () => {
@@ -116,7 +117,7 @@ function InventoryPage() {
     }
     fetchProducts()
     fetchLogs()
-  }, [])
+  }, [fetchProducts])
 
   // Filtering products
   const filteredProducts = products.filter(product => {
@@ -169,8 +170,9 @@ function InventoryPage() {
         category: ''
       })
     } catch (error) {
-      toast.error('Failed to add product. Please try again.')
-    }
+          toast.error('Failed to add product')
+          console.error(error)
+        }
   }
 
   const handleAddTransaction = async (e: FormEvent) => {
@@ -232,8 +234,9 @@ function InventoryPage() {
         reason: ''
       })
     } catch (error) {
-      toast.error('Failed to record transaction. Please try again.')
-    }
+          toast.error('Failed to add product')
+          console.error(error)
+        }
   }
 
   return (
