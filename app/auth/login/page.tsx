@@ -22,30 +22,40 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setError("");
+
     try {
-      // Use Appwrite's built-in session management with email/password only
-      await account.createSession(form.email, form.password);
+      // Create session with Appwrite
+      const session = await account.createEmailPasswordSession(form.email, form.password);
       
-      // Fetch user details
+      // Get user details
       const user = await account.get();
-      
-      // Store user data in localStorage for persistence across the app
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      // Show success message
+
+      // Store user data in localStorage
+      localStorage.setItem('user', JSON.stringify({
+        id: user.$id,
+        name: user.name,
+        email: user.email,
+        session: session.$id
+      }));
+
       toast.success('Login successful!');
       
       // Redirect to dashboard
       router.push("/dashboard");
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error("Login error:", err);
-      // More specific error message based on the error
-      if (err && typeof err === "object" && "message" in err) {
-        setError(`Error: ${(err as { message: string }).message}`);
-      } else {
+      
+      // Handle specific Appwrite errors
+      if (err.type === 'user_invalid_credentials') {
         setError("Invalid email or password");
+        toast.error("Invalid email or password");
+      } else if (err.type === 'user_not_found') {
+        setError("No account found with this email");
+        toast.error("No account found with this email");
+      } else {
+        setError("An error occurred during login");
+        toast.error("Login failed. Please try again");
       }
-      toast.error("Login failed. Please check your credentials.");
     } finally {
       setLoading(false);
     }

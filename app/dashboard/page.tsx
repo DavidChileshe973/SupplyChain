@@ -12,8 +12,19 @@ import { databases } from "@/lib/appwrite";
 import { Query } from "appwrite";
 import type { Icon } from "leaflet";
 import LeafletStyles from "@/components/LeafletStyles";
+import DashboardLayout from "@/components/DashboardLayout";
 import LogoutButton from "@/components/LogoutButton";
 import UserInfo from "@/components/UserInfo";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { account } from "@/lib/appwrite";
+import { 
+  ChartBarIcon, 
+  ArrowRightOnRectangleIcon,
+  ChartPieIcon,
+  Cog6ToothIcon,
+  ShoppingBagIcon
+} from "@heroicons/react/24/outline";
 
 // Dynamically import Leaflet components to avoid SSR issues
 const MapContainer = dynamic(
@@ -154,6 +165,10 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<any>(null);
+
   // Analytics
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -187,6 +202,26 @@ export default function Dashboard() {
     destinationIcon: Icon;
     vesselIcon: Icon;
   } | null>(null);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const session = await account.getSession('current');
+        if (session) {
+          const userData = await account.get();
+          setUser(userData);
+          setIsAuthenticated(true);
+        } else {
+          router.push('/auth/login');
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        router.push('/auth/login');
+      }
+    };
+
+    checkAuth();
+  }, [router]);
 
   useEffect(() => {
     // Only run on client
@@ -305,17 +340,35 @@ export default function Dashboard() {
     setIsAnimating(false);
   }, [route]);
 
+  const handleLogout = async () => {
+    try {
+      await account.deleteSession('current');
+      localStorage.removeItem('user');
+      router.push('/auth/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
   if (loading)
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
-        Loading dashboard...
-      </div>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-full">
+          Loading dashboard...
+        </div>
+      </DashboardLayout>
     );
   if (!analyticsData)
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
-        Error loading dashboard
-      </div>
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-full">
+          Error loading dashboard
+        </div>
+      </DashboardLayout>
     );
 
   const {
@@ -327,309 +380,235 @@ export default function Dashboard() {
   } = analyticsData;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* --- NAVIGATION BAR --- */}
-      <nav className="bg-gray-950 shadow">
-        <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-          <a
-            href="/dashboard"
-            className="flex items-center gap-2 font-bold text-2xl text-indigo-400"
+    <DashboardLayout>
+      <div className="space-y-6">
+        {/* Origin/Destination Form */}
+        <div className="bg-gray-800/50 rounded-lg p-4 sm:p-6 shadow-lg backdrop-blur-sm border border-white/10">
+          <h2 className="text-lg font-semibold mb-4">Show Route on Map</h2>
+          <form
+            onSubmit={handleShowOnMap}
+            className="flex flex-col md:flex-row gap-4 items-center"
           >
-            <i className="fas fa-box"></i>
-            Supply<span className="text-white">Flow</span>
-          </a>
-          <div className="flex gap-6">
-            <a
-              href="/dashboard"
-              className="text-indigo-400 font-semibold border-b-2 border-indigo-400 pb-1"
+            <input
+              type="text"
+              placeholder="Origin (e.g. New York)"
+              value={originInput}
+              onChange={(e) => setOriginInput(e.target.value)}
+              className="px-3 py-2 rounded bg-gray-900/50 border border-white/10 text-white w-full md:w-1/3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Destination (e.g. Boston)"
+              value={destinationInput}
+              onChange={(e) => setDestinationInput(e.target.value)}
+              className="px-3 py-2 rounded bg-gray-900/50 border border-white/10 text-white w-full md:w-1/3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              required
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+              disabled={geocoding}
             >
-              Dashboard
-            </a>
-            <a href="/shipments" className="hover:text-indigo-400">
-              Shipments
-            </a>
-            <a href="/inventory" className="hover:text-indigo-400">
-              Inventory
-            </a>
-            <a href="/analytics" className="hover:text-indigo-400">
-              Analytics
-            </a>
-            <a href="/products" className="hover:text-indigo-400">
-              Products
-            </a>
-            <a href="/settings" className="hover:text-indigo-400">
-              Settings
-            </a>
-            <LogoutButton />
-            <UserInfo />
+              {geocoding ? "Locating..." : "Show on Map"}
+            </button>
+          </form>
+          {geocodeError && (
+            <div className="text-red-500 mt-2 text-sm">{geocodeError}</div>
+          )}
+        </div>
+
+        {/* Show Map if Both Locations Are Set and Route is Ready */}
+        {icons && originCoord && destinationCoord && route.length > 0 && (
+          <div className="bg-gray-800 rounded-lg p-4 shadow-lg mb-6">
+            {/* Vessel Animation Button */}
+            {!isAnimating && (
+              <button
+                className="mb-2 px-4 py-2 bg-green-600 text-white rounded"
+                onClick={() => {
+                  setVesselIndex(0);
+                  setIsAnimating(true);
+                }}
+              >
+                Start Vessel Animation
+              </button>
+            )}
+            <MapContainer
+              center={route[Math.floor(route.length / 2)] as [number, number]}
+              zoom={7}
+              style={{ height: 350, width: "100%" }}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              <Marker
+                position={[originCoord.lat, originCoord.lng]}
+                icon={icons.originIcon}
+              />
+              <Marker
+                position={[destinationCoord.lat, destinationCoord.lng]}
+                icon={icons.destinationIcon}
+              />
+              <Polyline positions={route} color="blue" />
+              {/* Vessel Marker */}
+              {route.length > 0 && (
+                <Marker
+                  position={route[vesselIndex]}
+                  icon={icons.vesselIcon}
+                />
+              )}
+            </MapContainer>
+          </div>
+        )}
+
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <TruckIcon className="h-6 w-6 text-indigo-500" />
+              <span className="text-xs text-gray-400">Active Shipments</span>
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {activeShipments}
+            </div>
+            <div className="text-xs text-green-500 mt-1">
+              +12% from last week
+            </div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <CheckCircleIcon className="h-6 w-6 text-green-500" />
+              <span className="text-xs text-gray-400">
+                Delivered This Month
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {deliveredThisMonth}
+            </div>
+            <div className="text-xs text-green-500 mt-1">
+              +5% from last month
+            </div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <ExclamationTriangleIcon className="h-6 w-6 text-red-500" />
+              <span className="text-xs text-gray-400">
+                Delayed Shipments
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {delayedShipments}
+            </div>
+            <div className="text-xs text-red-500 mt-1">
+              -2% from last week
+            </div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <CubeIcon className="h-6 w-6 text-yellow-500" />
+              <span className="text-xs text-gray-400">
+                Inventory Value
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-white">
+              ${totalInventoryValue.toLocaleString()}
+            </div>
+            <div className="text-xs text-yellow-500 mt-1">
+              +3% from last month
+            </div>
           </div>
         </div>
-      </nav>
 
-      <LeafletStyles />
-
-      {/* --- MAIN DASHBOARD LAYOUT (Sidebar + Main Content) --- */}
-      <div className="flex">
-        {/* --- SIDEBAR --- */}
-        <aside className="bg-gray-800 w-64 min-h-screen py-8 px-4 hidden md:block">
-          <ul className="space-y-2">
-            <li>
-              <a
-                href="#"
-                className="flex items-center gap-3 px-4 py-2 rounded bg-gray-900 text-indigo-400 font-semibold"
-              >
-                <i className="fas fa-tachometer-alt"></i> Overview
-              </a>
-            </li>
-            <li>
-              <a
-                href="/shipments"
-                className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400"
-              >
-                <i className="fas fa-truck"></i> Shipments
-              </a>
-            </li>
-            <li>
-              <a
-                href="/inventory"
-                className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400"
-              >
-                <i className="fas fa-boxes"></i> Inventory
-              </a>
-            </li>
-            <li>
-              <a
-                href="/analytics"
-                className="flex items-center gap-3 px-4 py-2 rounded hover:bg-gray-900 hover:text-indigo-400"
-              >
-                <i className="fas fa-chart-line"></i> Analytics
-              </a>
-            </li>
-          </ul>
-        </aside>
-
-        {/* --- MAIN CONTENT --- */}
-        <main className="flex-1 p-6 space-y-6">
-          {/* Origin/Destination Form */}
-          <div className="bg-gray-800 rounded-lg p-6 shadow-lg mb-6">
-            <h2 className="text-xl font-bold mb-4">Show Route on Map</h2>
-            <form
-              onSubmit={handleShowOnMap}
-              className="flex flex-col md:flex-row gap-4 items-center"
-            >
-              <input
-                type="text"
-                placeholder="Origin (e.g. New York)"
-                value={originInput}
-                onChange={(e) => setOriginInput(e.target.value)}
-                className="px-3 py-2 rounded border border-gray-600 bg-gray-900 text-white w-full md:w-1/3"
-                required
-              />
-              <input
-                type="text"
-                placeholder="Destination (e.g. Boston)"
-                value={destinationInput}
-                onChange={(e) => setDestinationInput(e.target.value)}
-                className="px-3 py-2 rounded border border-gray-600 bg-gray-900 text-white w-full md:w-1/3"
-                required
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 bg-indigo-600 text-white rounded"
-                disabled={geocoding}
-              >
-                {geocoding ? "Locating..." : "Show on Map"}
-              </button>
-            </form>
-            {geocodeError && (
-              <div className="text-red-500 mt-2">{geocodeError}</div>
-            )}
-          </div>
-
-          {/* Show Map if Both Locations Are Set and Route is Ready */}
-          {icons && originCoord && destinationCoord && route.length > 0 && (
-            <div className="bg-gray-800 rounded-lg p-4 shadow-lg mb-6">
-              {/* Vessel Animation Button */}
-              {!isAnimating && (
-                <button
-                  className="mb-2 px-4 py-2 bg-green-600 text-white rounded"
-                  onClick={() => {
-                    setVesselIndex(0);
-                    setIsAnimating(true);
-                  }}
-                >
-                  Start Vessel Animation
-                </button>
-              )}
-              <MapContainer
-                center={route[Math.floor(route.length / 2)] as [number, number]}
-                zoom={7}
-                style={{ height: 350, width: "100%" }}
-              >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                <Marker
-                  position={[originCoord.lat, originCoord.lng]}
-                  icon={icons.originIcon}
-                />
-                <Marker
-                  position={[destinationCoord.lat, destinationCoord.lng]}
-                  icon={icons.destinationIcon}
-                />
-                <Polyline positions={route} color="blue" />
-                {/* Vessel Marker */}
-                {route.length > 0 && (
-                  <Marker
-                    position={route[vesselIndex]}
-                    icon={icons.vesselIcon}
-                  />
-                )}
-              </MapContainer>
-            </div>
-          )}
-
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <TruckIcon className="h-8 w-8 text-indigo-500" />
-                <span className="text-sm text-gray-400">Active Shipments</span>
-              </div>
-              <div className="text-3xl font-bold text-white">
-                {activeShipments}
-              </div>
-              <div className="text-sm text-green-500 mt-2">
-                +12% from last week
-              </div>
-            </div>
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <CheckCircleIcon className="h-8 w-8 text-green-500" />
-                <span className="text-sm text-gray-400">
-                  Delivered This Month
-                </span>
-              </div>
-              <div className="text-3xl font-bold text-white">
-                {deliveredThisMonth}
-              </div>
-              <div className="text-sm text-green-500 mt-2">
-                +5% from last month
-              </div>
-            </div>
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <ExclamationTriangleIcon className="h-8 w-8 text-red-500" />
-                <span className="text-sm text-gray-400">
-                  Delayed Shipments
-                </span>
-              </div>
-              <div className="text-3xl font-bold text-white">
-                {delayedShipments}
-              </div>
-              <div className="text-sm text-red-500 mt-2">
-                -2% from last week
-              </div>
-            </div>
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <CubeIcon className="h-8 w-8 text-yellow-500" />
-                <span className="text-sm text-gray-400">
-                  Inventory Value
-                </span>
-              </div>
-              <div className="text-3xl font-bold text-white">
-                ${totalInventoryValue.toLocaleString()}
-              </div>
-              <div className="text-sm text-yellow-500 mt-2">
-                +3% from last month
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Shipments Table */}
-          <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
-            <h2 className="text-xl font-bold mb-4">Recent Shipments</h2>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left">
-                <thead>
-                  <tr>
-                    <th className="px-4 py-2">Tracking ID</th>
-                    <th className="px-4 py-2">Status</th>
-                    <th className="px-4 py-2">Origin</th>
-                    <th className="px-4 py-2">Destination</th>
-                    <th className="px-4 py-2">Cost</th>
-                    <th className="px-4 py-2">Created At</th>
-                    <th className="px-4 py-2">Actions</th>
+        {/* Recent Shipments Table */}
+        <div className="bg-gray-800/50 rounded-lg p-4 sm:p-6 shadow-lg backdrop-blur-sm border border-white/10">
+          <h2 className="text-lg font-semibold mb-4">Recent Shipments</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="px-4 py-2 text-gray-400 font-medium">Tracking ID</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Status</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Origin</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Destination</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Cost</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Created At</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {recentShipments.map((shipment) => (
+                  <tr key={shipment.$id} className="hover:bg-gray-800/30 transition-colors">
+                    <td className="px-4 py-2">{shipment.tracking_id}</td>
+                    <td className="px-4 py-2">
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        shipment.status === 'In Transit' ? 'bg-indigo-500/20 text-indigo-400' :
+                        shipment.status === 'Delivered' ? 'bg-green-500/20 text-green-400' :
+                        'bg-amber-500/20 text-amber-400'
+                      }`}>
+                        {shipment.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">{shipment.origin}</td>
+                    <td className="px-4 py-2">{shipment.destination}</td>
+                    <td className="px-4 py-2">
+                      ${shipment.cost?.toLocaleString() ?? "N/A"}
+                    </td>
+                    <td className="px-4 py-2">
+                      {new Date(shipment.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-2">
+                      <button
+                        className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 transition-colors"
+                        onClick={() => onTrackClick(shipment)}
+                      >
+                        Track
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {recentShipments.map((shipment) => (
-                    <tr key={shipment.$id} className="border-t border-gray-700">
-                      <td className="px-4 py-2">{shipment.tracking_id}</td>
-                      <td className="px-4 py-2">{shipment.status}</td>
-                      <td className="px-4 py-2">{shipment.origin}</td>
-                      <td className="px-4 py-2">{shipment.destination}</td>
-                      <td className="px-4 py-2">
-                        ${shipment.cost?.toLocaleString() ?? "N/A"}
-                      </td>
-                      <td className="px-4 py-2">
-                        {new Date(shipment.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-2">
-                        <button
-                          className="px-3 py-1 bg-blue-600 text-white rounded"
-                          onClick={() => onTrackClick(shipment)}
-                        >
-                          Track
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Live Shipment Location Modal */}
+        {icons && trackingShipment && (
+          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-lg p-8 shadow-lg w-full max-w-lg relative">
+              <button
+                className="absolute top-2 right-2 text-gray-400 hover:text-white"
+                onClick={resetTracking}
+              >
+                &times;
+              </button>
+              <h2 className="text-xl font-bold mb-4">
+                Live Location for {trackingShipment.tracking_id}
+              </h2>
+              {loadingLocation ? (
+                <div>Loading location...</div>
+              ) : liveLocation ? (
+                <div className="h-64">
+                  <MapContainer
+                    center={
+                      [liveLocation.lat, liveLocation.lng] as [number, number]
+                    }
+                    zoom={10}
+                    style={{ height: "100%", width: "100%" }}
+                  >
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                    <Marker
+                      position={[liveLocation.lat, liveLocation.lng]}
+                      icon={icons.vesselIcon}
+                    />
+                  </MapContainer>
+                </div>
+              ) : (
+                <div className="text-red-500">
+                  Could not fetch live location.
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Live Shipment Location Modal */}
-          {icons && trackingShipment && (
-            <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-              <div className="bg-gray-900 rounded-lg p-8 shadow-lg w-full max-w-lg relative">
-                <button
-                  className="absolute top-2 right-2 text-gray-400 hover:text-white"
-                  onClick={resetTracking}
-                >
-                  &times;
-                </button>
-                <h2 className="text-xl font-bold mb-4">
-                  Live Location for {trackingShipment.tracking_id}
-                </h2>
-                {loadingLocation ? (
-                  <div>Loading location...</div>
-                ) : liveLocation ? (
-                  <div className="h-64">
-                    <MapContainer
-                      center={
-                        [liveLocation.lat, liveLocation.lng] as [number, number]
-                      }
-                      zoom={10}
-                      style={{ height: "100%", width: "100%" }}
-                    >
-                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                      <Marker
-                        position={[liveLocation.lat, liveLocation.lng]}
-                        icon={icons.vesselIcon}
-                      />
-                    </MapContainer>
-                  </div>
-                ) : (
-                  <div className="text-red-500">
-                    Could not fetch live location.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </main>
+        )}
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

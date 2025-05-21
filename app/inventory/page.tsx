@@ -11,10 +11,17 @@ import {
   ChartBarIcon,
   CogIcon,
   PlusIcon,
-  MagnifyingGlassIcon
+  MagnifyingGlassIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  CurrencyDollarIcon,
+  CubeIcon,
+  TagIcon,
+  CameraIcon
 } from '@heroicons/react/24/outline'
 import { ID } from 'appwrite'
 import { databases } from '@/lib/appwrite'
+import DashboardLayout from '@/components/DashboardLayout'
 
 interface Product {
   $id: string
@@ -64,6 +71,9 @@ function InventoryPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false)
   const [isAddTransactionModalOpen, setIsAddTransactionModalOpen] = useState(false)
+  const [isScanningModalOpen, setIsScanningModalOpen] = useState(false)
+  const [scanningStatus, setScanningStatus] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle')
+  const [scannedProduct, setScannedProduct] = useState<Product | null>(null)
   const [newProduct, setNewProduct] = useState<Omit<Product, '$id' | 'created_at' | 'updated_at'>>({
     user_id: '',
     name: '',
@@ -239,306 +249,377 @@ function InventoryPage() {
         }
   }
 
+  // Add camera scanning functionality
+  const startScanning = async () => {
+    try {
+      setScanningStatus('scanning')
+      // Here you would integrate with a barcode/QR code scanning library
+      // For example, using QuaggaJS or similar
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      // Process the video stream for product identification
+      // This is a placeholder for the actual scanning logic
+      setScanningStatus('success')
+    } catch (error) {
+      console.error('Error accessing camera:', error)
+      setScanningStatus('error')
+      toast.error('Failed to access camera')
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-slate-900">
-      <Toaster position="top-right" />
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 bg-slate-800/80 backdrop-blur-md z-50 border-b border-slate-700">
-        <div className="container mx-auto flex justify-between items-center py-4 px-6">
-          <Link href="/dashboard" className="flex items-center text-white text-xl font-bold">
-            <InboxIcon className="w-8 h-8 mr-2 text-indigo-500" />
-            Supply<span className="text-green-500">Flow</span>
-          </Link>
-          <div className="flex space-x-6">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`flex items-center space-x-2 
-                  ${pathname === link.href ? 'text-indigo-500' : 'text-gray-300 hover:text-white'}
-                  transition-colors duration-300
-                `}
-              >
-                <link.icon className="w-5 h-5" />
-                <span>{link.label}</span>
-              </Link>
-            ))}
-            <Link
-              href="/logout"
-              className="text-red-400 hover:text-red-300 transition-colors duration-300"
-            >
-              Logout
-            </Link>
+    <DashboardLayout>
+      <div className="space-y-6">
+        <Toaster position="top-right" />
+        
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <CubeIcon className="h-6 w-6 text-indigo-500" />
+              <span className="text-xs text-gray-400">Total Products</span>
+            </div>
+            <div className="text-2xl font-bold text-white">{products.length}</div>
+            <div className="text-xs text-green-500 mt-1">Active inventory items</div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <ArrowUpIcon className="h-6 w-6 text-green-500" />
+              <span className="text-xs text-gray-400">Total Stock</span>
+            </div>
+            <div className="text-2xl font-bold text-white">{products.reduce((total, product) => total + product.stock, 0)}</div>
+            <div className="text-xs text-green-500 mt-1">Units in inventory</div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <CurrencyDollarIcon className="h-6 w-6 text-yellow-500" />
+              <span className="text-xs text-gray-400">Total Value</span>
+            </div>
+            <div className="text-2xl font-bold text-white">${products.reduce((total, product) => total + (product.stock * product.unitPrice), 0).toLocaleString()}</div>
+            <div className="text-xs text-yellow-500 mt-1">Current inventory value</div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <ArrowDownIcon className="h-6 w-6 text-red-500" />
+              <span className="text-xs text-gray-400">Low Stock Items</span>
+            </div>
+            <div className="text-2xl font-bold text-white">{products.filter(p => p.stock < 10).length}</div>
+            <div className="text-xs text-red-500 mt-1">Items below threshold</div>
+          </div>
+          <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
+            <div className="flex justify-between items-center mb-3">
+              <TagIcon className="h-6 w-6 text-purple-500" />
+              <span className="text-xs text-gray-400">Unique SKUs</span>
+            </div>
+            <div className="text-2xl font-bold text-white">{new Set(products.map(p => p.sku)).size}</div>
+            <div className="text-xs text-purple-500 mt-1">Active product variants</div>
           </div>
         </div>
-      </nav>
-      {/* Main Content */}
-      <div className="pt-20 px-6">
-        <div className="max-w-7xl mx-auto">
-          {/* Header */}
-          <div className="flex justify-between items-center mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-white">Inventory Management</h1>
-              <p className="text-gray-400">Manage your products and stock levels</p>
-            </div>
-            <div className="flex space-x-4">
-              <button
-                onClick={() => setIsAddTransactionModalOpen(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center"
-              >
-                <PlusIcon className="w-5 h-5 mr-2" />
-                Add Transaction
-              </button>
-              <button
-                onClick={() => setIsAddProductModalOpen(true)}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center"
-              >
-                <PlusIcon className="w-5 h-5 mr-2" />
-                Add Product
-              </button>
-            </div>
-          </div>
-          {/* Search and Filter */}
-          <div className="flex space-x-4 mb-6">
-            <div className="relative flex-grow">
+
+        {/* Search and Add Product */}
+        <div className="bg-gray-800/50 rounded-lg p-4 sm:p-6 shadow-lg backdrop-blur-sm border border-white/10">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="relative w-full md:w-96">
               <input
                 type="text"
                 placeholder="Search products..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 pl-10 rounded bg-gray-900/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-              <MagnifyingGlassIcon className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+              <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
             </div>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">All Categories</option>
-              <option value="Electronics">Electronics</option>
-              <option value="Furniture">Furniture</option>
-              <option value="Apparel">Apparel</option>
-            </select>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsScanningModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+              >
+                <CameraIcon className="h-5 w-5" />
+                Scan Product
+              </button>
+              <button
+                onClick={() => setIsAddProductModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+              >
+                <PlusIcon className="h-5 w-5" />
+                Add Product
+              </button>
+            </div>
           </div>
-          {/* Products Table */}
-          <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-            <table className="w-full">
+        </div>
+
+        {/* Products Table */}
+        <div className="bg-gray-800/50 rounded-lg p-4 sm:p-6 shadow-lg backdrop-blur-sm border border-white/10">
+          <h2 className="text-lg font-semibold mb-4">Inventory Items</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
               <thead>
-                <tr className="bg-slate-700">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Product</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">SKU</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Stock</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Unit Price</th>
+                <tr className="border-b border-white/10">
+                  <th className="px-4 py-2 text-gray-400 font-medium">SKU</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Name</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Category</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Stock</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Unit Price</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Total Value</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700">
+              <tbody className="divide-y divide-white/10">
                 {filteredProducts.map((product) => (
-                  <tr key={product.$id} className="hover:bg-slate-700/50">
-                    <td className="px-6 py-4 whitespace-nowrap text-white">{product.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-300">{product.sku}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-300">{product.category || '-'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-300">{product.stock}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-300">${product.unitPrice.toFixed(2)}</td>
+                  <tr key={product.$id} className="hover:bg-gray-800/30 transition-colors">
+                    <td className="px-4 py-2">{product.sku}</td>
+                    <td className="px-4 py-2">{product.name}</td>
+                    <td className="px-4 py-2">{product.category || 'N/A'}</td>
+                    <td className="px-4 py-2">
+                      <span className={`px-2 py-1 rounded-full text-xs ${
+                        product.stock < 10 ? 'bg-red-500/20 text-red-400' :
+                        product.stock < 50 ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-green-500/20 text-green-400'
+                      }`}>
+                        {product.stock}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">${product.unitPrice.toLocaleString()}</td>
+                    <td className="px-4 py-2">${(product.stock * product.unitPrice).toLocaleString()}</td>
+                    <td className="px-4 py-2">
+                      <button
+                        onClick={() => {
+                          setNewTransaction(prev => ({ ...prev, productId: product.$id }))
+                          setIsAddTransactionModalOpen(true)
+                        }}
+                        className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 transition-colors"
+                      >
+                        Update Stock
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {/* Inventory Log Table */}
-          <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden mt-10">
-            <h2 className="text-xl font-bold text-white px-6 pt-6">Inventory Log</h2>
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-700">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Product</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Change Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Quantity</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Reason</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700">
-                {logs
-                  .sort((a, b) => b.created_at.localeCompare(a.created_at))
-                  .map((log) => {
-                    const product = products.find(p => p.$id === log.product_id)
-                    return (
-                      <tr key={log.$id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-300">{new Date(log.created_at).toLocaleString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-300">{product?.name || 'Unknown'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-300">{log.change_type}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-300">{log.quantity}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-300">{log.reason || '-'}</td>
-                      </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
-          </div>
         </div>
-      </div>
-      {/* Add Product Modal */}
-      <div
-        className={`fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 ${isAddProductModalOpen ? 'block' : 'hidden'}`}
-        onClick={() => setIsAddProductModalOpen(false)}
-      >
-        <div
-          className="bg-slate-800 rounded-lg p-6 w-full max-w-md"
-          onClick={e => e.stopPropagation()}
-        >
-          <h2 className="text-2xl font-bold mb-4 text-white">Add New Product</h2>
-          <form onSubmit={handleAddProduct} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Product Name</label>
-              <input
-                type="text"
-                value={newProduct.name}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">SKU</label>
-              <input
-                type="text"
-                value={newProduct.sku}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Category</label>
-              <input
-                type="text"
-                value={newProduct.category}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Stock</label>
-              <input
-                type="number"
-                value={newProduct.stock}
-                min={0}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, stock: Number(e.target.value) }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Unit Price</label>
-              <input
-                type="number"
-                value={newProduct.unitPrice}
-                min={0}
-                step={0.01}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, unitPrice: Number(e.target.value) }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            <div className="flex justify-end">
+
+        {/* Add Product Modal */}
+        {isAddProductModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-lg p-8 shadow-lg w-full max-w-lg relative">
               <button
-                type="button"
-                className="mr-2 px-4 py-2 rounded-lg bg-gray-600 text-white"
+                className="absolute top-2 right-2 text-gray-400 hover:text-white"
                 onClick={() => setIsAddProductModalOpen(false)}
               >
-                Cancel
+                &times;
               </button>
+              <h2 className="text-xl font-bold mb-4">Add New Product</h2>
+              <form onSubmit={handleAddProduct} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={newProduct.name}
+                    onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">SKU</label>
+                  <input
+                    type="text"
+                    value={newProduct.sku}
+                    onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newProduct.category}
+                    onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Initial Stock</label>
+                  <input
+                    type="number"
+                    value={newProduct.stock}
+                    onChange={(e) => setNewProduct(prev => ({ ...prev, stock: parseInt(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    min="0"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Unit Price</label>
+                  <input
+                    type="number"
+                    value={newProduct.unitPrice}
+                    onChange={(e) => setNewProduct(prev => ({ ...prev, unitPrice: parseFloat(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+                >
+                  Add Product
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Add Transaction Modal */}
+        {isAddTransactionModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-lg p-8 shadow-lg w-full max-w-lg relative">
               <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white"
-              >
-                Add Product
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-      {/* Add Transaction Modal */}
-      <div
-        className={`fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 ${isAddTransactionModalOpen ? 'block' : 'hidden'}`}
-        onClick={() => setIsAddTransactionModalOpen(false)}
-      >
-        <div
-          className="bg-slate-800 rounded-lg p-6 w-full max-w-md"
-          onClick={e => e.stopPropagation()}
-        >
-          <h2 className="text-2xl font-bold mb-4 text-white">Add Transaction</h2>
-          <form onSubmit={handleAddTransaction} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Product</label>
-              <select
-                value={newTransaction.productId}
-                onChange={e => setNewTransaction(prev => ({ ...prev, productId: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              >
-                <option value="">Select a product</option>
-                {products.map(product => (
-                  <option key={product.$id} value={product.$id}>
-                    {product.name} ({product.sku})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Quantity</label>
-              <input
-                type="number"
-                value={newTransaction.quantity}
-                min={1}
-                onChange={e => setNewTransaction(prev => ({ ...prev, quantity: Number(e.target.value) }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Change Type</label>
-              <select
-                value={newTransaction.transactionType}
-                onChange={e => setNewTransaction(prev => ({ ...prev, transactionType: e.target.value as 'Add' | 'Remove' | 'Adjust' }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-                required
-              >
-                <option value="Add">Add</option>
-                <option value="Remove">Remove</option>
-                <option value="Adjust">Adjust</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Reason (optional)</label>
-              <input
-                type="text"
-                value={newTransaction.reason}
-                onChange={e => setNewTransaction(prev => ({ ...prev, reason: e.target.value }))}
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white"
-              />
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                className="mr-2 px-4 py-2 rounded-lg bg-gray-600 text-white"
+                className="absolute top-2 right-2 text-gray-400 hover:text-white"
                 onClick={() => setIsAddTransactionModalOpen(false)}
               >
-                Cancel
+                &times;
               </button>
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white"
-              >
-                Record Transaction
-              </button>
+              <h2 className="text-xl font-bold mb-4">Update Stock</h2>
+              <form onSubmit={handleAddTransaction} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Product</label>
+                  <select
+                    value={newTransaction.productId}
+                    onChange={(e) => setNewTransaction(prev => ({ ...prev, productId: e.target.value }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  >
+                    <option value="">Select a product</option>
+                    {products.map(product => (
+                      <option key={product.$id} value={product.$id}>
+                        {product.name} (Current Stock: {product.stock})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Transaction Type</label>
+                  <select
+                    value={newTransaction.transactionType}
+                    onChange={(e) => setNewTransaction(prev => ({ ...prev, transactionType: e.target.value as 'Add' | 'Remove' | 'Adjust' }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  >
+                    <option value="Add">Add Stock</option>
+                    <option value="Remove">Remove Stock</option>
+                    <option value="Adjust">Adjust Stock</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    value={newTransaction.quantity}
+                    onChange={(e) => setNewTransaction(prev => ({ ...prev, quantity: parseInt(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    min="1"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">Reason (Optional)</label>
+                  <input
+                    type="text"
+                    value={newTransaction.reason}
+                    onChange={(e) => setNewTransaction(prev => ({ ...prev, reason: e.target.value }))}
+                    className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+                >
+                  Update Stock
+                </button>
+              </form>
             </div>
-          </form>
-        </div>
+          </div>
+        )}
+
+        {/* Product Scanner Modal */}
+        {isScanningModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+            <div className="bg-gray-900 rounded-lg p-8 shadow-lg w-full max-w-lg relative">
+              <button
+                className="absolute top-2 right-2 text-gray-400 hover:text-white"
+                onClick={() => {
+                  setIsScanningModalOpen(false)
+                  setScanningStatus('idle')
+                }}
+              >
+                &times;
+              </button>
+              <h2 className="text-xl font-bold mb-4">Scan Product</h2>
+              <div className="space-y-4">
+                {scanningStatus === 'idle' && (
+                  <div className="text-center">
+                    <p className="text-gray-400 mb-4">Use your camera to scan product barcodes or QR codes</p>
+                    <button
+                      onClick={startScanning}
+                      className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                    >
+                      Start Scanning
+                    </button>
+                  </div>
+                )}
+                {scanningStatus === 'scanning' && (
+                  <div className="text-center">
+                    <div className="aspect-video bg-gray-800 rounded-lg mb-4 relative">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="animate-pulse text-purple-500">
+                          <CameraIcon className="h-12 w-12" />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-gray-400">Scanning for product code...</p>
+                  </div>
+                )}
+                {scanningStatus === 'success' && scannedProduct && (
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <h3 className="font-semibold text-lg mb-2">Product Found</h3>
+                    <div className="space-y-2">
+                      <p><span className="text-gray-400">SKU:</span> {scannedProduct.sku}</p>
+                      <p><span className="text-gray-400">Name:</span> {scannedProduct.name}</p>
+                      <p><span className="text-gray-400">Stock:</span> {scannedProduct.stock}</p>
+                      <button
+                        onClick={() => {
+                          setNewTransaction(prev => ({ ...prev, productId: scannedProduct.$id }))
+                          setIsAddTransactionModalOpen(true)
+                          setIsScanningModalOpen(false)
+                        }}
+                        className="w-full mt-4 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
+                      >
+                        Update Stock
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {scanningStatus === 'error' && (
+                  <div className="text-center text-red-500">
+                    <p>Failed to access camera. Please check your permissions.</p>
+                    <button
+                      onClick={() => setScanningStatus('idle')}
+                      className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    </DashboardLayout>
   )
 }
 

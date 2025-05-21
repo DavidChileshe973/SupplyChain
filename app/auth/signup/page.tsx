@@ -16,20 +16,62 @@ import {
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 
-export default function Register() {
+export default function Auth() {
+  const [isLogin, setIsLogin] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [company, setCompany] = useState("");
-  const [role, setRole] = useState("user");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
 
-  async function handleRegister(e: React.FormEvent) {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage("");
+    setLoading(true);
+
+    try {
+      // Create session with Appwrite
+      const session = await account.createEmailPasswordSession(email, password);
+      
+      // Get user details
+      const user = await account.get();
+
+      // Store user data in localStorage
+      localStorage.setItem('user', JSON.stringify({
+        id: user.$id,
+        name: user.name,
+        email: user.email,
+        session: session.$id
+      }));
+
+      toast.success('Login successful!');
+      setMessage("Login successful! Redirecting to dashboard...");
+
+      // Redirect to dashboard after 2 seconds
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+    } catch (error: any) {
+      console.error('Login error:', error);
+      
+      if (error.type === 'user_invalid_credentials') {
+        setMessage("Error: Invalid email or password.");
+        toast.error("Invalid email or password.");
+      } else {
+        setMessage("Error: Login failed. Please try again.");
+        toast.error("Login failed. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
 
@@ -37,13 +79,14 @@ export default function Register() {
     if (password !== confirmPassword) {
       setMessage("Error: Passwords do not match.");
       return;
+    }
 
     setLoading(true);
 
     try {
-      // 1. Create user in Appwrite Auth with correct unique ID
+      // 1. Create user in Appwrite Auth
       const user = await account.create(
-        ID.unique(), // <-- FIXED: Use ID.unique() function here
+        ID.unique(),
         email,
         password,
         fullName
@@ -53,36 +96,45 @@ export default function Register() {
       await databases.createDocument(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
         process.env.NEXT_PUBLIC_APPWRITE_USERS_COLLECTION_ID!,
-        ID.unique(), // Document ID for your collection (this is fine)
+        ID.unique(),
         {
           user_id: user.$id,
           full_name: fullName,
           email: email,
           company: company,
-          role: role,
           created_at: new Date().toISOString(),
-          // updated_at can be handled later if needed
         }
       );
 
-      setMessage("Registration successful! You can now log in.");
+      toast.success('Registration successful!');
+      setMessage("Registration successful! Please log in to continue.");
+      
+      // Clear form
       setFullName("");
       setEmail("");
       setPassword("");
       setConfirmPassword("");
       setCompany("");
-      setRole("user");
 
-      // Redirect to login page after 2 seconds
-      setTimeout(() => {
-        router.push("/auth/login");
-      }, 2000);
-    } catch (error) {
-      toast.error('Failed to update product')
-      console.error(error)
+      // Switch to login form
+      setIsLogin(true);
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      
+      if (error.type === 'user_already_exists') {
+        setMessage("Error: An account with this email already exists.");
+        toast.error("An account with this email already exists.");
+      } else if (error.type === 'user_invalid_credentials') {
+        setMessage("Error: Invalid email or password format.");
+        toast.error("Invalid email or password format.");
+      } else {
+        setMessage("Error: Registration failed. Please try again.");
+        toast.error("Registration failed. Please try again.");
     }
-    }
+    } finally {
+      setLoading(false);
   }
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 to-slate-800">
@@ -92,7 +144,9 @@ export default function Register() {
             <span className="text-3xl font-bold text-white">
               Supply<span className="text-indigo-500">Flow</span>
             </span>
-            <span className="text-gray-400 text-sm mt-2">Create your account</span>
+            <span className="text-gray-400 text-sm mt-2">
+              {isLogin ? "Login to your account" : "Create your account"}
+            </span>
           </div>
 
           {message && (
@@ -107,7 +161,9 @@ export default function Register() {
             </div>
           )}
 
-          <form className="space-y-5" onSubmit={handleRegister}>
+          <form className="space-y-5" onSubmit={isLogin ? handleLogin : handleRegister}>
+            {!isLogin && (
+              <>
             {/* Full Name */}
             <div className="relative group">
               <UserIcon className="w-5 h-5 absolute left-3 top-3 text-gray-400 group-hover:text-indigo-500 transition-colors" />
@@ -117,9 +173,23 @@ export default function Register() {
                 placeholder="Full Name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                required
+                    required={!isLogin}
               />
             </div>
+
+                {/* Company */}
+                <div className="relative group">
+                  <BuildingOfficeIcon className="w-5 h-5 absolute left-3 top-3 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                  <input
+                    className="pl-10 pr-3 py-2.5 border border-slate-600 rounded-lg w-full focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all bg-slate-700 text-white placeholder-gray-400"
+                    type="text"
+                    placeholder="Company"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
 
             {/* Email */}
             <div className="relative group">
@@ -144,6 +214,7 @@ export default function Register() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={8}
               />
               <button
                 type="button"
@@ -158,7 +229,8 @@ export default function Register() {
               </button>
             </div>
 
-            {/* Confirm Password */}
+            {!isLogin && (
+              /* Confirm Password */
             <div className="relative group">
               <LockClosedIcon className="w-5 h-5 absolute left-3 top-3 text-gray-400 group-hover:text-indigo-500 transition-colors" />
               <input
@@ -167,7 +239,8 @@ export default function Register() {
                 placeholder="Confirm Password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                required
+                  required={!isLogin}
+                  minLength={8}
               />
               <button
                 type="button"
@@ -181,30 +254,7 @@ export default function Register() {
                 )}
               </button>
             </div>
-
-            {/* Company */}
-            <div className="relative group">
-              <BuildingOfficeIcon className="w-5 h-5 absolute left-3 top-3 text-gray-400 group-hover:text-indigo-500 transition-colors" />
-              <input
-                className="pl-10 pr-3 py-2.5 border border-slate-600 rounded-lg w-full focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all bg-slate-700 text-white placeholder-gray-400"
-                type="text"
-                placeholder="Company"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-              />
-            </div>
-
-            {/* Role */}
-            <div className="relative">
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full py-2.5 px-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
+            )}
 
             <button
               type="submit"
@@ -212,18 +262,26 @@ export default function Register() {
               disabled={loading}
             >
               {loading && <ArrowPathIcon className="w-5 h-5 animate-spin" />}
-              Create Account
+              {isLogin ? "Login" : "Create Account"}
             </button>
           </form>
 
           <div className="text-center mt-6 text-sm text-gray-400">
-            Already have an account?{" "}
-            <Link
-              href="/auth/login"
+            {isLogin ? "Don't have an account? " : "Already have an account? "}
+            <button
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setMessage("");
+                setEmail("");
+                setPassword("");
+                setConfirmPassword("");
+                setFullName("");
+                setCompany("");
+              }}
               className="text-indigo-400 hover:text-indigo-300 hover:underline transition-colors"
             >
-              Log in
-            </Link>
+              {isLogin ? "Sign up" : "Log in"}
+            </button>
           </div>
         </div>
       </div>

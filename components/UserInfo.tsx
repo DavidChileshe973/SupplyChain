@@ -19,9 +19,7 @@ export default function UserProfileInfo() {
     let isMounted = true;
     async function fetchProfile() {
       try {
-        // Get current user from Appwrite account
         const user = await account.get();
-        // Query the database for the user document by email
         const response = await databases.listDocuments(
           process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
           process.env.NEXT_PUBLIC_APPWRITE_USERS_COLLECTION_ID!,
@@ -51,30 +49,25 @@ export default function UserProfileInfo() {
   }, []);
 
   if (loading) return (
-    <div className="flex items-center gap-2 text-gray-400">
-      <UserIcon className="w-5 h-5" /> Loading profile...
+    <div className="flex items-center gap-1 text-gray-400">
+      <UserIcon className="w-3 h-3" /> Loading...
     </div>
   );
   if (error) return (
-    <div className="flex items-center gap-2 text-red-500">
-      <UserIcon className="w-5 h-5" /> {error}
+    <div className="flex items-center gap-1 text-red-500">
+      <UserIcon className="w-3 h-3" /> {error}
     </div>
   );
   if (!profile) return null;
 
   return (
-    <div className="bg-gray-800 rounded-lg p-5 shadow-lg flex items-center gap-4 max-w-md">
-      <div className="bg-indigo-600 rounded-full p-3">
-        <UserIcon className="w-8 h-8 text-white" />
+    <div className="bg-gray-800/30 rounded-md p-2 flex items-center gap-2">
+      <div className="bg-indigo-600/50 rounded-full p-1">
+        <UserIcon className="w-4 h-4 text-white" />
       </div>
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-bold text-lg text-white">{profile.full_name}</span>
-        </div>
-        <div className="flex items-center gap-2 text-gray-300">
-          <EnvelopeIcon className="w-4 h-4" />
-          <span className="text-sm">{profile.email}</span>
-        </div>
+      <div className="flex flex-col">
+        <span className="font-medium text-xs text-white">{profile.full_name}</span>
+        <span className="text-[10px] text-gray-400">{profile.email}</span>
       </div>
     </div>
   );
