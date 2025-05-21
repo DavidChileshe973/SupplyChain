@@ -37,11 +37,11 @@ export default function Login() {
       
       // Redirect to dashboard
       router.push("/dashboard");
-    } catch (err: Error) {
+    } catch (err: unknown) {
       console.error("Login error:", err);
       // More specific error message based on the error
-      if (err.message) {
-        setError(`Error: ${err.message}`);
+      if (err && typeof err === "object" && "message" in err) {
+        setError(`Error: ${(err as { message: string }).message}`);
       } else {
         setError("Invalid email or password");
       }
