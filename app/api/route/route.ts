@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/route/route.ts
+import { NextResponse } from "next/server";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
   const start = searchParams.get("start");
   const end = searchParams.get("end");
 
@@ -10,21 +11,25 @@ export async function GET(req: NextRequest) {
   }
 
   const apiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
-  const url = `https://api.openrouteservice.org/v2/directions/driving-car?start=${start}&end=${end}`;
+  if (!apiKey) {
+    return NextResponse.json({ error: "ORS API key not configured" }, { status: 500 });
+  }
+
+  const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${start}&end=${end}`;
 
   try {
-    const orsRes = await fetch(url, {
-      headers: {
-        Authorization: apiKey as string,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await fetch(url);
 
-    const data = await orsRes.json();
-    return NextResponse.json(data, { status: orsRes.status });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return NextResponse.json({ error: errorText }, { status: response.status });
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
-    console.error("Error fetching route:", error);
     return NextResponse.json({ error: "Failed to fetch route" }, { status: 500 });
   }
 }
+                                                    
+

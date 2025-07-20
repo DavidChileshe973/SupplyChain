@@ -11,38 +11,16 @@ import {
 import { databases } from "@/lib/appwrite";
 import { Query } from "appwrite";
 import type { Icon } from "leaflet";
-import LeafletStyles from "@/components/LeafletStyles";
 import DashboardLayout from "@/components/DashboardLayout";
-import LogoutButton from "@/components/LogoutButton";
-import UserInfo from "@/components/UserInfo";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { account } from "@/lib/appwrite";
-import { 
-  ChartBarIcon, 
-  ArrowRightOnRectangleIcon,
-  ChartPieIcon,
-  Cog6ToothIcon,
-  ShoppingBagIcon
-} from "@heroicons/react/24/outline";
+import { toast } from "react-hot-toast";
 
 // Dynamically import Leaflet components to avoid SSR issues
-const MapContainer = dynamic(
-  () => import("react-leaflet").then((mod) => mod.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(
-  () => import("react-leaflet").then((mod) => mod.TileLayer),
-  { ssr: false }
-);
-const Marker = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Marker),
-  { ssr: false }
-);
-const Polyline = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Polyline),
-  { ssr: false }
-);
+const MapContainer = dynamic(() => import("react-leaflet").then((mod) => mod.MapContainer), { ssr: false });
+const TileLayer = dynamic(() => import("react-leaflet").then((mod) => mod.TileLayer), { ssr: false });
+const Marker = dynamic(() => import("react-leaflet").then((mod) => mod.Marker), { ssr: false });
+const Polyline = dynamic(() => import("react-leaflet").then((mod) => mod.Polyline), { ssr: false });
 
 type Shipment = {
   $id: string;
@@ -62,45 +40,62 @@ type AnalyticsData = {
   delayedShipments: number;
   totalInventoryValue: number;
   recentShipments: Shipment[];
-  liveLocation?: {
-    lat: number;
-    lng: number;
-  };
+  liveLocation?: { lat: number; lng: number };
 };
 
-// --- Geocoding (OpenStreetMap Nominatim) ---
-async function geocode(
-  address: string
-): Promise<{ lat: number; lng: number } | null> {
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-      address
-    )}`
-  );
-  const data = await res.json();
-  if (data && data.length > 0) {
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+// Geocoding function (OpenStreetMap Nominatim)
+async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`,
+      {
+        headers: {
+          "User-Agent": "YourAppName/1.0 (your.email@example.com)", // Replace with your info
+          "Accept-Language": "en",
+        },
+      }
+    );
+    if (!res.ok) {
+      console.error(`Nominatim geocoding error: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+    return null;
+  } catch (error) {
+    console.error("Geocoding fetch error:", error);
+    return null;
   }
-  return null;
 }
 
-// --- Fetch Driving Route from OpenRouteService ---
+// Fetch driving route via Next.js API proxy
 async function getRoute(
   from: { lat: number; lng: number },
   to: { lat: number; lng: number }
 ): Promise<[number, number][]> {
-  const apiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
-  const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${apiKey}&start=${from.lng},${from.lat}&end=${to.lng},${to.lat}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Route fetch failed");
-  const data = await res.json();
-  // Decode geometry (polyline)
-  return data.features[0].geometry.coordinates.map(
-    ([lng, lat]: [number, number]) => [lat, lng]
-  );
+  const start = `${from.lng},${from.lat}`;
+  const end = `${to.lng},${to.lat}`;
+  const url = `/api/route?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("Route fetch error:", res.status, errorText);
+      throw new Error("Route fetch failed");
+    }
+    const data = await res.json();
+    return data.features[0].geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng]);
+  } catch (error) {
+    console.error("Error fetching route:", error);
+    throw error;
+  }
 }
 
-// --- Analytics Data Fetch ---
+// Updated fetchAnalyticsData function
+// Updated fetchAnalyticsData function
 async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
   try {
     const shipmentResponse = await databases.listDocuments(
@@ -108,7 +103,6 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
       process.env.NEXT_PUBLIC_SHIPMENTS_COLLECTION_ID!,
       [Query.limit(1000)]
     );
-
     const shipments = shipmentResponse.documents as unknown as Shipment[];
 
     const now = new Date();
@@ -128,27 +122,15 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
       );
     }).length;
 
-    const delayedShipments = shipments.filter(
-      (s) => s.status === "Delayed"
-    ).length;
+    const delayedShipments = shipments.filter((s) => s.status === "Delayed").length;
 
-    const totalInventoryValue = shipments.reduce(
-      (acc, s) => acc + (s.cost || 0),
-      0
-    );
+    const totalInventoryValue = shipments.reduce((acc, s) => acc + (s.cost || 0), 0);
 
     const recentShipments = shipments
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 5);
 
-    // Example static live location
-    const liveLocation =
-      recentShipments.length > 0
-        ? { lat: -22.9068, lng: -43.1729 }
-        : undefined;
+    const liveLocation = recentShipments.length > 0 ? { lat: -22.9068, lng: -43.1729 } : undefined;
 
     return {
       activeShipments,
@@ -164,6 +146,7 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
   }
 }
 
+
 export default function Dashboard() {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -174,13 +157,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   // Live tracking
-  const [trackingShipment, setTrackingShipment] = useState<Shipment | null>(
-    null
-  );
-  const [liveLocation, setLiveLocation] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
+  const [trackingShipment, setTrackingShipment] = useState<Shipment | null>(null);
+  const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [loadingLocation, setLoadingLocation] = useState(false);
 
   // Origin/destination & routing
@@ -206,25 +184,23 @@ export default function Dashboard() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const session = await account.getSession('current');
+        const session = await account.getSession("current");
         if (session) {
           const userData = await account.get();
           setUser(userData);
           setIsAuthenticated(true);
         } else {
-          router.push('/auth/login');
+          router.push("/auth/login");
         }
       } catch (error) {
-        console.error('Auth check failed:', error);
-        router.push('/auth/login');
+        console.error("Auth check failed:", error);
+        router.push("/auth/login");
       }
     };
-
     checkAuth();
   }, [router]);
 
   useEffect(() => {
-    // Only run on client
     (async () => {
       const L = await import("leaflet");
       setIcons({
@@ -247,7 +223,6 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // Fetch analytics
   const loadData = useCallback(async () => {
     try {
       const data = await fetchAnalyticsData();
@@ -263,7 +238,6 @@ export default function Dashboard() {
     loadData();
   }, [loadData]);
 
-  // Live location modal logic
   const fetchLiveLocation = useCallback(async (trackingId: string) => {
     setLoadingLocation(true);
     try {
@@ -292,17 +266,13 @@ export default function Dashboard() {
     setLiveLocation(null);
   }, []);
 
-  // Handle user origin/destination geocoding and routing
   async function handleShowOnMap(e: React.FormEvent) {
     e.preventDefault();
     setGeocoding(true);
     setGeocodeError(null);
     setRoute([]);
     try {
-      const [origin, dest] = await Promise.all([
-        geocode(originInput),
-        geocode(destinationInput),
-      ]);
+      const [origin, dest] = await Promise.all([geocode(originInput), geocode(destinationInput)]);
       setOriginCoord(origin);
       setDestinationCoord(dest);
       if (!origin || !dest) {
@@ -310,7 +280,6 @@ export default function Dashboard() {
         setGeocoding(false);
         return;
       }
-      // Fetch the real driving route
       const routeCoords = await getRoute(origin, dest);
       setRoute(routeCoords);
     } catch (error) {
@@ -320,13 +289,12 @@ export default function Dashboard() {
     setGeocoding(false);
   }
 
-  // Vessel animation effect
   useEffect(() => {
     if (route.length > 0 && isAnimating) {
       if (vesselIndex < route.length - 1) {
         const timer = setTimeout(() => {
           setVesselIndex(vesselIndex + 1);
-        }, 100); // Adjust speed (ms)
+        }, 100);
         return () => clearTimeout(timer);
       } else {
         setIsAnimating(false);
@@ -334,40 +302,24 @@ export default function Dashboard() {
     }
   }, [route, vesselIndex, isAnimating]);
 
-  // Reset animation when new route is set
   useEffect(() => {
     setVesselIndex(0);
     setIsAnimating(false);
   }, [route]);
 
-  const handleLogout = async () => {
-    try {
-      await account.deleteSession('current');
-      localStorage.removeItem('user');
-      router.push('/auth/login');
-    } catch (error) {
-      console.error('Logout failed:', error);
-    }
-  };
-
-  if (!isAuthenticated) {
-    return null;
-  }
+  if (!isAuthenticated) return null;
 
   if (loading)
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-full">
-          Loading dashboard...
-        </div>
+        <div className="flex items-center justify-center h-full">Loading dashboard...</div>
       </DashboardLayout>
     );
+
   if (!analyticsData)
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-full">
-          Error loading dashboard
-        </div>
+        <div className="flex items-center justify-center h-full">Error loading dashboard</div>
       </DashboardLayout>
     );
 
