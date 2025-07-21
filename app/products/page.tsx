@@ -1,12 +1,10 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react' // Added useCallback
 import { 
   TruckIcon, 
-  ChartBarIcon, 
   CubeIcon, 
   ArrowRightOnRectangleIcon,
-  UserCircleIcon,
   ArrowUpIcon,
   ArrowDownIcon,
   ClockIcon,
@@ -18,11 +16,12 @@ import {
   BellIcon,
   PlusIcon
 } from '@heroicons/react/24/outline'
+import { CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/solid' // Added for integrity icons
 import { toast } from 'react-hot-toast'
 import { Client, Databases, Query } from 'appwrite'
 import { ID } from 'appwrite'
 import Link from 'next/link'
-import UserProfileInfo from '@/components/UserInfo'
+import UserProfileInfo from '@/components/UserInfo' // Assuming this component exists
 import { usePathname } from 'next/navigation'
 
 // Appwrite Configuration
@@ -32,7 +31,7 @@ const client = new Client()
 
 const databases = new Databases(client)
 
-// Types
+// --- Types ---
 type Product = {
   $id: string
   name: string
@@ -42,6 +41,9 @@ type Product = {
   description: string
   sku: string
   created_at: string
+  // Added for blockchain integration
+  data_hash?: string; // Stores the hash of the product's data
+  blockchain_tx_id?: string; // Optional: Stores the transaction ID if recorded on blockchain
 }
 
 type ProductStats = {
@@ -49,6 +51,39 @@ type ProductStats = {
   low_stock: number
   out_of_stock: number
   total_value: number
+}
+
+// --- Hashing Utility Types & Function ---
+// Defines the subset of Product fields that will be hashed
+type ProductDataToHash = {
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+  description: string;
+  sku: string;
+  created_at: string; // Include creation timestamp for hash consistency
+};
+
+/**
+ * Generates a SHA-256 hash of a product's key data.
+ * Ensures consistent stringification for deterministic hashing.
+ */
+async function generateProductDataHash(product: ProductDataToHash): Promise<string> {
+  const dataString = JSON.stringify({
+    name: product.name,
+    category: product.category,
+    price: product.price,
+    stock: product.stock,
+    description: product.description,
+    sku: product.sku,
+    created_at: product.created_at, // Crucial for consistency
+  });
+  const encoder = new TextEncoder();
+  const data = encoder.encode(dataString);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 const ProductsPage: React.FC = () => {
@@ -65,18 +100,23 @@ const ProductsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
 
+  // newProduct now also includes optional blockchain fields
   const [newProduct, setNewProduct] = useState<Partial<Product>>({})
+
+  // State to track integrity verification status for each product
+  const [verifiedProductIds, setVerifiedProductIds] = useState<Set<string>>(new Set());
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
     { name: 'Shipments', href: '/shipments', icon: TruckIcon },
     { name: 'Products', href: '/products', icon: CubeIcon },
-    { name: 'Inventory', href: '/inventory', icon: CubeIcon },
+    { name: 'Inventory', href: '/inventory', icon: CubeIcon }, // CubeIcon for Inventory might be confusing if Products uses it
     { name: 'Analytics', href: '/analytics', icon: ChartPieIcon },
     { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
   ]
 
-  const fetchProducts = async () => {
+  // --- Product Data Fetching & Stats Calculation ---
+  const fetchProducts = useCallback(async () => {
     try {
       const response = await databases.listDocuments(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
@@ -86,7 +126,6 @@ const ProductsPage: React.FC = () => {
           Query.limit(100)
         ]
       )
-
       const typedProducts = response.documents as unknown as Product[]
       
       // Calculate stats
@@ -106,28 +145,71 @@ const ProductsPage: React.FC = () => {
       console.error('Failed to fetch products:', error)
       toast.error('Failed to fetch products')
     }
-  }
+  }, []) // No dependencies needed, so useCallback wraps it for stability
 
+  // --- Product Integrity Verification ---
+  const verifyAllProductsIntegrity = useCallback(async () => {
+    const newVerifiedSet = new Set<string>();
+    for (const product of products) {
+      if (product.data_hash) { // Only verify if a hash exists
+        const dataToHash: ProductDataToHash = {
+          name: product.name,
+          category: product.category,
+          price: product.price,
+          stock: product.stock,
+          description: product.description,
+          sku: product.sku,
+          created_at: product.created_at,
+        };
+        const computedHash = await generateProductDataHash(dataToHash);
+        if (computedHash === product.data_hash) {
+          newVerifiedSet.add(product.$id);
+        } else {
+          console.warn(`Integrity check failed for product ${product.sku}. Stored hash: ${product.data_hash}, Computed hash: ${computedHash}`);
+          // You might want to toast an error for the user here too, but be careful not to spam.
+        }
+      }
+    }
+    setVerifiedProductIds(newVerifiedSet);
+  }, [products]); // Re-verify whenever products state changes
+
+  // --- Create Product Handler ---
   const createProduct = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsCreating(true)
     try {
-      const productData = {
+      const now = new Date().toISOString();
+      const productToCreate: Product = {
         ...newProduct,
+        $id: ID.unique(), // Appwrite ID generated on client-side
         sku: `PRD-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-        created_at: new Date().toISOString()
-      }
+        created_at: now,
+        // Ensure all required properties are numbers/strings, provide defaults if Partial type allows
+        name: newProduct.name || '',
+        category: newProduct.category || '',
+        price: newProduct.price || 0,
+        stock: newProduct.stock || 0,
+        description: newProduct.description || '',
+      };
+
+      // Generate data hash before creating the document
+      const dataHash = await generateProductDataHash(productToCreate);
+      productToCreate.data_hash = dataHash;
+
+      // TODO: Here you would also interact with your blockchain smart contract
+      // Example: const tx = await yourSmartContract.recordProductHash(productToCreate.$id, dataHash);
+      // productToCreate.blockchain_tx_id = tx.hash; // Store blockchain transaction ID
 
       await databases.createDocument(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
         process.env.NEXT_PUBLIC_PRODUCTS_COLLECTION_ID!,
-        ID.unique(),
-        productData
-      )
+        productToCreate.$id, // Use the generated ID
+        productToCreate // Pass the full product object including hash
+      );
 
-      toast.success('Product created successfully')
-      fetchProducts()
-      setNewProduct({})
+      toast.success('Product created successfully');
+      fetchProducts(); // Re-fetch all products including the new one
+      setNewProduct({}); // Clear form
     } catch (error) {
       console.error('Failed to create product:', error)
       toast.error('Failed to create product')
@@ -136,24 +218,36 @@ const ProductsPage: React.FC = () => {
     }
   }
 
+  // --- Effects ---
   useEffect(() => {
     fetchProducts()
-  }, [])
+  }, [fetchProducts]) // Depend on fetchProducts memoized function
 
+  useEffect(() => {
+    if (products.length > 0) {
+      verifyAllProductsIntegrity(); // Run verification once products are loaded
+    }
+  }, [products, verifyAllProductsIntegrity]); // Depend on products and the memoized verification function
+
+
+  // --- Filtering Logic for Table Display ---
   const filteredProducts = products.filter(product => 
-    (!searchQuery || Object.values(product).some(val => 
-      val.toString().toLowerCase().includes(searchQuery.toLowerCase())
-    )) &&
+    (!searchQuery || Object.values(product).some(val => {
+      // Safely convert to string and check for includes, handle null/undefined values
+      if (val === null || val === undefined) return false;
+      return String(val).toLowerCase().includes(searchQuery.toLowerCase());
+    })) &&
     (!categoryFilter || product.category === categoryFilter)
   )
 
+  // --- Render JSX ---
   return (
     <div className="min-h-screen bg-[#0f172a] text-white">
       {/* Navigation Bar */}
       <nav className="fixed top-0 left-0 right-0 bg-[rgba(15,23,42,0.8)] backdrop-blur-lg border-b border-white/10 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            {/* Logo and Brand */}
+            {/* Logo */}
             <div className="flex items-center gap-2">
               <TruckIcon className="w-8 h-8 text-indigo-500" />
               <span className="text-2xl font-bold">
@@ -161,12 +255,14 @@ const ProductsPage: React.FC = () => {
               </span>
             </div>
 
-            {/* Search Bar */}
+            {/* Search Bar in Navbar */}
             <div className="hidden md:flex flex-1 max-w-md mx-8">
               <div className="relative w-full">
                 <input
                   type="text"
-                  placeholder="Search..."
+                  placeholder="Search products..."
+                  value={searchQuery} // Controlled input
+                  onChange={e => setSearchQuery(e.target.value)} // Updates state
                   className="w-full bg-white/5 border border-white/10 rounded-lg py-2 pl-10 pr-4 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
                 <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
@@ -175,18 +271,13 @@ const ProductsPage: React.FC = () => {
 
             {/* Right Side Actions */}
             <div className="flex items-center gap-4">
-              {/* Notifications */}
               <button className="relative p-2 text-gray-400 hover:text-white transition-colors rounded-lg hover:bg-white/5">
                 <BellIcon className="w-5 h-5" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
               </button>
-
-              {/* User Profile */}
-              <UserProfileInfo />
-
-              {/* Logout Button */}
+              <UserProfileInfo /> {/* Assuming this component exists */}
               <button
-                onClick={() => {/* handle logout */}}
+                onClick={() => {/* TODO: handle logout */}}
                 className="hidden md:flex items-center gap-1 text-gray-300 hover:text-white transition-colors text-sm px-3 py-2 rounded-lg hover:bg-white/5"
               >
                 <ArrowRightOnRectangleIcon className="w-4 h-4" />
@@ -290,6 +381,7 @@ const ProductsPage: React.FC = () => {
                 <CurrencyDollarIcon className="w-5 h-5 text-green-500" />
               </div>
               <div className="flex items-baseline justify-between">
+                {/* Ensure price and stock are numbers before calculating total value for display */}
                 <p className="text-3xl font-bold text-white">${stats.total_value.toLocaleString()}</p>
                 <span className="flex items-center text-green-500 text-sm">
                   <ArrowUpIcon className="w-4 h-4 mr-1" />
@@ -315,14 +407,19 @@ const ProductsPage: React.FC = () => {
                   className="bg-gray-900/50 text-white p-2 rounded border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   required
                 />
-                <input
-                  type="text"
-                  placeholder="Category"
+                {/* Category Dropdown */}
+                <select
                   value={newProduct.category || ''}
                   onChange={(e) => setNewProduct(prev => ({...prev, category: e.target.value}))}
                   className="bg-gray-900/50 text-white p-2 rounded border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   required
-                />
+                >
+                  <option value="" disabled>Select Category</option>
+                  <option value="electronics">Electronics</option>
+                  <option value="clothing">Clothing</option>
+                  <option value="food">Food</option>
+                  <option value="other">Other</option>
+                </select>
                 <input
                   type="number"
                   placeholder="Price"
@@ -415,6 +512,7 @@ const ProductsPage: React.FC = () => {
                     <th className="px-6 py-4 font-medium">Stock</th>
                     <th className="px-6 py-4 font-medium">Status</th>
                     <th className="px-6 py-4 font-medium">Created</th>
+                    <th className="px-6 py-4 font-medium">Integrity</th> {/* New column for blockchain integrity */}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
@@ -423,20 +521,41 @@ const ProductsPage: React.FC = () => {
                       <td className="px-6 py-4 text-sm">{product.sku}</td>
                       <td className="px-6 py-4 text-sm">{product.name}</td>
                       <td className="px-6 py-4 text-sm">{product.category}</td>
-                      <td className="px-6 py-4 text-sm">${product.price}</td>
-                      <td className="px-6 py-4 text-sm">{product.stock}</td>
+                      {/* Price display with .toLocaleString() and safety check */}
+                      <td className="px-6 py-4 text-sm">
+                        ${typeof product.price === 'number' ? product.price.toLocaleString() : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {typeof product.stock === 'number' ? product.stock : 'N/A'}
+                      </td>
                       <td className="px-6 py-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          product.stock === 0 ? 'bg-red-500/20 text-red-400' :
-                          product.stock < 10 ? 'bg-amber-500/20 text-amber-400' :
+                          (product.stock ?? 0) === 0 ? 'bg-red-500/20 text-red-400' :
+                          (product.stock ?? 0) < 10 && (product.stock ?? 0) > 0 ? 'bg-amber-500/20 text-amber-400' :
                           'bg-green-500/20 text-green-400'
                         }`}>
-                          {product.stock === 0 ? 'Out of Stock' :
-                           product.stock < 10 ? 'Low Stock' :
+                          {(product.stock ?? 0) === 0 ? 'Out of Stock' :
+                           (product.stock ?? 0) < 10 && (product.stock ?? 0) > 0 ? 'Low Stock' :
                            'In Stock'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm">{new Date(product.created_at).toLocaleDateString()}</td>
+                      {/* Integrity Status Column */}
+                      <td className="px-6 py-4 text-sm">
+                        {product.data_hash ? (
+                            verifiedProductIds.has(product.$id) ? (
+                                <CheckCircleIcon className="inline-block h-5 w-5 text-green-500" title="Data Verified" />
+                            ) : (
+                                <ExclamationCircleIcon className="inline-block h-5 w-5 text-red-500" title="Data Tampered or Unverified" />
+                            )
+                        ) : (
+                            <span className="text-gray-500" title="No hash data">N/A</span>
+                        )}
+                        {/* Optionally, show blockchain_tx_id with link */}
+                        {product.blockchain_tx_id && (
+                            <a href={`https://etherscan.io/tx/${product.blockchain_tx_id}`} target="_blank" rel="noopener noreferrer" className="ml-2 text-indigo-400 hover:text-indigo-300 text-xs">View TX</a>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

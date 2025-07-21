@@ -25,14 +25,14 @@ const Polyline = dynamic(() => import("react-leaflet").then((mod) => mod.Polylin
 type Shipment = {
   $id: string;
   tracking_id: string;
-  status: string;
+  product_category: string;
   origin: string;
   destination: string;
-  cost?: number;
+  status: string;
   created_at: string;
-  transitTime?: number;
-  location?: { lat: number; lng: number } | null;
+  cost?: number;
 };
+
 
 type AnalyticsData = {
   activeShipments: number;
@@ -55,17 +55,13 @@ async function geocode(address: string): Promise<{ lat: number; lng: number } | 
         },
       }
     );
-    if (!res.ok) {
-      console.error(`Nominatim geocoding error: ${res.status} ${res.statusText}`);
-      return null;
-    }
+    if (!res.ok) return null;
     const data = await res.json();
     if (data && data.length > 0) {
       return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
     }
     return null;
-  } catch (error) {
-    console.error("Geocoding fetch error:", error);
+  } catch {
     return null;
   }
 }
@@ -78,24 +74,17 @@ async function getRoute(
   const start = `${from.lng},${from.lat}`;
   const end = `${to.lng},${to.lat}`;
   const url = `/api/route?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
-
   try {
     const res = await fetch(url);
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error("Route fetch error:", res.status, errorText);
-      throw new Error("Route fetch failed");
-    }
+    if (!res.ok) throw new Error("Route fetch failed");
     const data = await res.json();
     return data.features[0].geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng]);
-  } catch (error) {
-    console.error("Error fetching route:", error);
-    throw error;
+  } catch {
+    throw new Error("Error fetching route");
   }
 }
 
-// Updated fetchAnalyticsData function
-// Updated fetchAnalyticsData function
+// Fetch analytics and recent shipment data
 async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
   try {
     const shipmentResponse = await databases.listDocuments(
@@ -104,15 +93,12 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
       [Query.limit(1000)]
     );
     const shipments = shipmentResponse.documents as unknown as Shipment[];
-
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-
     const activeShipments = shipments.filter((s) =>
       ["In Transit", "Processing"].includes(s.status)
     ).length;
-
     const deliveredThisMonth = shipments.filter((s) => {
       const createdDate = new Date(s.created_at);
       return (
@@ -121,15 +107,13 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
         createdDate.getFullYear() === currentYear
       );
     }).length;
-
     const delayedShipments = shipments.filter((s) => s.status === "Delayed").length;
-
     const totalInventoryValue = shipments.reduce((acc, s) => acc + (s.cost || 0), 0);
-
     const recentShipments = shipments
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 5);
 
+    // Dummy live location (replace as needed)
     const liveLocation = recentShipments.length > 0 ? { lat: -22.9068, lng: -43.1729 } : undefined;
 
     return {
@@ -140,12 +124,10 @@ async function fetchAnalyticsData(): Promise<AnalyticsData | null> {
       recentShipments,
       liveLocation,
     };
-  } catch (error) {
-    console.error("Analytics data fetch error:", error);
+  } catch {
     return null;
   }
 }
-
 
 export default function Dashboard() {
   const router = useRouter();
@@ -192,8 +174,7 @@ export default function Dashboard() {
         } else {
           router.push("/auth/login");
         }
-      } catch (error) {
-        console.error("Auth check failed:", error);
+      } catch {
         router.push("/auth/login");
       }
     };
@@ -228,8 +209,7 @@ export default function Dashboard() {
       const data = await fetchAnalyticsData();
       setAnalyticsData(data);
       setLoading(false);
-    } catch (error) {
-      console.error("Dashboard data loading error:", error);
+    } catch {
       setLoading(false);
     }
   }, []);
@@ -245,8 +225,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error("Failed to fetch location");
       const data = await res.json();
       setLiveLocation({ lat: data.lat, lng: data.lng });
-    } catch (error) {
-      console.error("Live location fetch error:", error);
+    } catch {
       setLiveLocation(null);
     } finally {
       setLoadingLocation(false);
@@ -282,8 +261,7 @@ export default function Dashboard() {
       }
       const routeCoords = await getRoute(origin, dest);
       setRoute(routeCoords);
-    } catch (error) {
-      console.error("Geocoding or routing error:", error);
+    } catch {
       setGeocodeError("Error geocoding or routing.");
     }
     setGeocoding(false);
@@ -469,54 +447,47 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Recent Shipments Table */}
+        {/* Recent Shipments Table (all fields) */}
         <div className="bg-gray-800/50 rounded-lg p-4 sm:p-6 shadow-lg backdrop-blur-sm border border-white/10">
           <h2 className="text-lg font-semibold mb-4">Recent Shipments</h2>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="px-4 py-2 text-gray-400 font-medium">Tracking ID</th>
-                  <th className="px-4 py-2 text-gray-400 font-medium">Status</th>
-                  <th className="px-4 py-2 text-gray-400 font-medium">Origin</th>
-                  <th className="px-4 py-2 text-gray-400 font-medium">Destination</th>
-                  <th className="px-4 py-2 text-gray-400 font-medium">Cost</th>
-                  <th className="px-4 py-2 text-gray-400 font-medium">Created At</th>
-                  <th className="px-4 py-2 text-gray-400 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {recentShipments.map((shipment) => (
-                  <tr key={shipment.$id} className="hover:bg-gray-800/30 transition-colors">
-                    <td className="px-4 py-2">{shipment.tracking_id}</td>
-                    <td className="px-4 py-2">
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        shipment.status === 'In Transit' ? 'bg-indigo-500/20 text-indigo-400' :
-                        shipment.status === 'Delivered' ? 'bg-green-500/20 text-green-400' :
-                        'bg-amber-500/20 text-amber-400'
-                      }`}>
-                        {shipment.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">{shipment.origin}</td>
-                    <td className="px-4 py-2">{shipment.destination}</td>
-                    <td className="px-4 py-2">
-                      ${shipment.cost?.toLocaleString() ?? "N/A"}
-                    </td>
-                    <td className="px-4 py-2">
-                      {new Date(shipment.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-2">
-                      <button
-                        className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 transition-colors"
-                        onClick={() => onTrackClick(shipment)}
-                      >
-                        Track
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+             <thead>
+  <tr className="border-b border-white/10">
+    <th className="px-4 py-2 text-gray-400 font-medium">Tracking ID</th>
+    <th className="px-4 py-2 text-gray-400 font-medium">Category</th>
+    <th className="px-4 py-2 text-gray-400 font-medium">Origin</th>
+    <th className="px-4 py-2 text-gray-400 font-medium">Destination</th>
+    <th className="px-4 py-2 text-gray-400 font-medium">Status</th>
+    <th className="px-4 py-2 text-gray-400 font-medium">Cost</th>
+    <th className="px-4 py-2 text-gray-400 font-medium">Actions</th>
+  </tr>
+</thead>
+
+   <tbody className="divide-y divide-white/10">
+  {recentShipments.map((shipment) => (
+    <tr key={shipment.$id} className="hover:bg-gray-800/30 transition-colors">
+      <td className="px-4 py-2">{shipment.tracking_id}</td>
+      <td className="px-4 py-2">{shipment.product_category}</td>
+      <td className="px-4 py-2">{shipment.origin}</td>
+      <td className="px-4 py-2">{shipment.destination}</td>
+      <td className="px-4 py-2">{shipment.status}</td>
+      <td className="px-4 py-2">
+        {typeof shipment.cost === "number" ? `$${shipment.cost.toFixed(2)}` : "-"}
+      </td>
+      <td className="px-4 py-2">
+        <button
+          className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700 transition-colors"
+          onClick={() => onTrackClick(shipment)}
+        >
+          Track
+        </button>
+      </td>
+    </tr>
+  ))}
+</tbody>
+
+
             </table>
           </div>
         </div>

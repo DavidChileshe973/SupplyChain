@@ -1,0 +1,120 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "ShipmentLedger",
+  "sourceName": "contracts/ShipmentLedger.sol",
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "trackingId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "productCategory",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "origin",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "destination",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "departureDate",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "eta",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "deliveryDate",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "recordedBy",
+          "type": "address"
+        }
+      ],
+      "name": "ShipmentRecorded",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "trackingId",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "productCategory",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "origin",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "destination",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "status",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "departureDate",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "eta",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "deliveryDate",
+          "type": "uint256"
+        }
+      ],
+      "name": "recordShipment",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x60808060405234601557610211908161001b8239f35b600080fdfe608080604052600436101561001357600080fd5b60003560e01c630baae8441461002857600080fd5b34610187576101003660031901126101875760043567ffffffffffffffff81116101875761005a90369060040161018c565b60249291923567ffffffffffffffff81116101875761007d90369060040161018c565b919060443567ffffffffffffffff81116101875761009f90369060040161018c565b93909560643567ffffffffffffffff8111610187576100c290369060040161018c565b6084359267ffffffffffffffff8411610187577fa865e080f96b0211b3303eeeb49784e996a041c011789b775cf7dcf9c51e802d9989986101398a986101209861012b610147966101639d61011e6101559c369060040161018c565b9d909e81815201916101ba565b8d810360208f0152916101ba565b918a830360408c01526101ba565b9187830360608901526101ba565b9184830360808601526101ba565b60a43560a083015260c43560c083015260e43560e0830152336101008301520390a1005b600080fd5b9181601f840112156101875782359167ffffffffffffffff8311610187576020838186019501011161018757565b908060209392818452848401376000828201840152601f01601f191601019056fea2646970667358221220d03e83232d15b9d8d275ff31f42bbc5a757074e7d298e2c65fb374353b4447e364736f6c634300081c0033",
+  "deployedBytecode": "0x608080604052600436101561001357600080fd5b60003560e01c630baae8441461002857600080fd5b34610187576101003660031901126101875760043567ffffffffffffffff81116101875761005a90369060040161018c565b60249291923567ffffffffffffffff81116101875761007d90369060040161018c565b919060443567ffffffffffffffff81116101875761009f90369060040161018c565b93909560643567ffffffffffffffff8111610187576100c290369060040161018c565b6084359267ffffffffffffffff8411610187577fa865e080f96b0211b3303eeeb49784e996a041c011789b775cf7dcf9c51e802d9989986101398a986101209861012b610147966101639d61011e6101559c369060040161018c565b9d909e81815201916101ba565b8d810360208f0152916101ba565b918a830360408c01526101ba565b9187830360608901526101ba565b9184830360808601526101ba565b60a43560a083015260c43560c083015260e43560e0830152336101008301520390a1005b600080fd5b9181601f840112156101875782359167ffffffffffffffff8311610187576020838186019501011161018757565b908060209392818452848401376000828201840152601f01601f191601019056fea2646970667358221220d03e83232d15b9d8d275ff31f42bbc5a757074e7d298e2c65fb374353b4447e364736f6c634300081c0033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

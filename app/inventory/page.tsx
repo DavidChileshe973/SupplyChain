@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useState, FormEvent, useEffect, useCallback } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { toast, Toaster } from 'react-hot-toast'
+import { ID } from 'appwrite'
+import { databases } from '@/lib/appwrite'
+import DashboardLayout from '@/components/DashboardLayout' // Assuming this component exists
 import {
   HomeIcon,
   TruckIcon,
@@ -17,12 +18,13 @@ import {
   CurrencyDollarIcon,
   CubeIcon,
   TagIcon,
-  CameraIcon
+  CameraIcon,
 } from '@heroicons/react/24/outline'
-import { ID } from 'appwrite'
-import { databases } from '@/lib/appwrite'
-import DashboardLayout from '@/components/DashboardLayout'
+import { CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/solid'
+import { usePathname } from 'next/navigation' // For sidebar active link
 
+
+// --- Interface Definitions ---
 interface Product {
   $id: string
   user_id: string
@@ -33,6 +35,7 @@ interface Product {
   category?: string
   created_at: string
   updated_at: string
+  hash?: string // Added for blockchain-like integrity check
 }
 
 interface InventoryLog {
@@ -45,7 +48,6 @@ interface InventoryLog {
   created_at: string
 }
 
-
 interface Transaction {
   productId: string
   quantity: number
@@ -53,9 +55,41 @@ interface Transaction {
   reason?: string
 }
 
+// --- Hashing Utility Types & Function ---
+// Defines the subset of Product fields that will be hashed
+type ProductHashData = {
+  name: string
+  sku: string
+  stock: number
+  unitPrice: number
+  category?: string
+}
 
+/**
+ * Generates a SHA-256 hash of a product's key data.
+ * Ensures consistent stringification for deterministic hashing.
+ */
+async function hashProductData(product: ProductHashData): Promise<string> {
+  const productString = JSON.stringify({
+    name: product.name,
+    sku: product.sku,
+    stock: product.stock,
+    unitPrice: product.unitPrice,
+    category: product.category || '', // Ensure category is always a string for consistent hash
+  })
+  const encoder = new TextEncoder()
+  const data = encoder.encode(productString)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+
+// --- Main InventoryPage Component ---
 function InventoryPage() {
   const pathname = usePathname()
+
+  // Define sidebar navigation links
   const navLinks = [
     { href: '/dashboard', label: 'Dashboard', icon: HomeIcon },
     { href: '/shipments', label: 'Shipments', icon: TruckIcon },
@@ -64,17 +98,25 @@ function InventoryPage() {
     { href: '/products', label: 'Products', icon: InboxIcon },
     { href: '/settings', label: 'Settings', icon: CogIcon },
   ]
+
+  // State variables
   const [products, setProducts] = useState<Product[]>([])
-  const [logs, setLogs] = useState<InventoryLog[]>([])
-  const [currentUserId, setCurrentUserId] = useState<string>('')
+  const [logs, setLogs] = useState<InventoryLog[]>([]) // For inventory transaction logs
+  const [currentUserId, setCurrentUserId] = useState<string>('') // User ID for product ownership/logging
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+
+  // Modals visibility states
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false)
   const [isAddTransactionModalOpen, setIsAddTransactionModalOpen] = useState(false)
   const [isScanningModalOpen, setIsScanningModalOpen] = useState(false)
+
+  // Scanning related states
   const [scanningStatus, setScanningStatus] = useState<'idle' | 'scanning' | 'success' | 'error'>('idle')
-  const [scannedProduct, setScannedProduct] = useState<Product | null>(null)
-  const [newProduct, setNewProduct] = useState<Omit<Product, '$id' | 'created_at' | 'updated_at'>>({
+  const [scannedProduct, setScannedProduct] = useState<Product | null>(null) // Placeholder for scanned product details
+
+  // Form data for adding new products
+  const [newProduct, setNewProduct] = useState<Omit<Product, '$id' | 'created_at' | 'updated_at' | 'hash'>>({
     user_id: '',
     name: '',
     sku: '',
@@ -82,6 +124,8 @@ function InventoryPage() {
     unitPrice: 0,
     category: ''
   })
+
+  // Form data for new inventory transactions
   const [newTransaction, setNewTransaction] = useState<Transaction>({
     productId: '',
     quantity: 0,
@@ -89,7 +133,16 @@ function InventoryPage() {
     reason: ''
   })
 
-  // Fetch products from Appwrite
+  // State to store IDs of products whose hash has been successfully verified
+  const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set())
+
+
+  // --- Data Fetching Functions ---
+
+  /**
+   * Fetches product data from Appwrite.
+   * Uses useCallback for memoization to prevent unnecessary re-renders.
+   */
   const fetchProducts = useCallback(async () => {
     try {
       const response = await databases.listDocuments(
@@ -98,12 +151,14 @@ function InventoryPage() {
       )
       setProducts(response.documents as unknown as Product[])
     } catch (error) {
-      toast.error('Failed to add product')
-      console.error(error)
+      toast.error('Failed to load products')
+      console.error('Appwrite fetch products error:', error)
     }
   }, [])
 
-  // Fetch inventory logs from Appwrite
+  /**
+   * Fetches inventory log data from Appwrite.
+   */
   const fetchLogs = async () => {
     try {
       const response = await databases.listDocuments(
@@ -112,24 +167,73 @@ function InventoryPage() {
       )
       setLogs(response.documents as unknown as InventoryLog[])
     } catch (error) {
-      console.error("Error fetching inventory logs:", error)
       toast.error('Failed to fetch inventory logs')
+      console.error('Appwrite fetch logs error:', error)
     }
   }
 
+
+  // --- Product Integrity Verification ---
+
+  /**
+   * Verifies the integrity of a product's data by comparing its computed hash
+   * with the hash stored in the database.
+   */
+  async function verifyProductHash(product: Product): Promise<boolean> {
+    if (!product.hash) {
+      // If no hash is stored, it cannot be verified, but log as an issue.
+      console.warn(`Product ${product.$id} (${product.name}) has no hash stored for verification.`)
+      return false
+    }
+    // Prepare data for hashing (excluding Appwrite internal fields and the hash itself)
+    const productDataToHash: ProductHashData = {
+      name: product.name,
+      sku: product.sku,
+      stock: product.stock,
+      unitPrice: product.unitPrice,
+      category: product.category || '',
+    }
+    const computedHash = await hashProductData(productDataToHash)
+    return computedHash === product.hash
+  }
+
+  /**
+   * Effect hook to run verification on all products whenever `products` state changes.
+   * Updates `verifiedIds` set for UI display.
+   */
   useEffect(() => {
-    // Get user from localStorage
+    async function verifyAllProducts() {
+      const newVerifiedSet = new Set<string>()
+      for (const product of products) {
+        if (await verifyProductHash(product)) {
+          newVerifiedSet.add(product.$id)
+        }
+      }
+      setVerifiedIds(newVerifiedSet)
+    }
+    verifyAllProducts()
+  }, [products]) // Rerun whenever products list changes
+
+
+  // --- Initial Data Load & User Info ---
+
+  /**
+   * Effect hook to load initial data (user ID, products, logs) on component mount.
+   */
+  useEffect(() => {
     const userStr = localStorage.getItem('user')
     if (userStr) {
       const user = JSON.parse(userStr)
-      setCurrentUserId(user.$id || user.id)
-      setNewProduct(prev => ({ ...prev, user_id: user.$id || user.id }))
+      setCurrentUserId(user.$id || user.id) // Ensure currentUserId is set
+      setNewProduct(prev => ({ ...prev, user_id: user.$id || user.id })) // Set user_id for new product form
     }
     fetchProducts()
     fetchLogs()
-  }, [fetchProducts])
+  }, [fetchProducts]) // Dependency on fetchProducts to ensure it's up-to-date
 
-  // Filtering products
+
+  // --- Product Filtering Logic ---
+
   const filteredProducts = products.filter(product => {
     const matchesSearch =
       (product.name?.toLowerCase().includes(searchQuery.toLowerCase()) || false) ||
@@ -138,16 +242,26 @@ function InventoryPage() {
     return matchesSearch && matchesCategory
   })
 
+
+  // --- Form Validation & Handlers ---
+
+  /**
+   * Validates the new product form fields.
+   */
   const validateProductForm = () => {
     const errors: string[] = []
     if (!newProduct.name.trim()) errors.push('Product name is required.')
     if (!newProduct.sku.trim()) errors.push('SKU is required.')
     if (newProduct.stock < 0) errors.push('Stock cannot be negative.')
     if (newProduct.unitPrice < 0) errors.push('Unit price cannot be negative.')
-    if (!newProduct.user_id) errors.push('User ID is required.')
+    if (!newProduct.user_id) errors.push('User ID is required. Please ensure you are logged in.')
     return errors
   }
 
+  /**
+   * Handles the submission for adding a new product.
+   * Computes and stores hash along with product data.
+   */
   const handleAddProduct = async (e: FormEvent) => {
     e.preventDefault()
     const validationErrors = validateProductForm()
@@ -155,23 +269,36 @@ function InventoryPage() {
       validationErrors.forEach(error => toast.error(error))
       return
     }
+
     try {
+      // Data to be hashed
+      const dataToHash: ProductHashData = {
+        name: newProduct.name,
+        sku: newProduct.sku,
+        stock: newProduct.stock,
+        unitPrice: newProduct.unitPrice,
+        category: newProduct.category || ''
+      }
+      const productHash = await hashProductData(dataToHash) // Compute hash
+
       const now = new Date().toISOString()
       const createdProduct = {
         ...newProduct,
+        hash: productHash, // Store the computed hash
         created_at: now,
         updated_at: now,
       }
+
       await databases.createDocument(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
         process.env.NEXT_PUBLIC_PRODUCTS_COLLECTION_ID!,
         ID.unique(),
         createdProduct
       )
-      await fetchProducts()
+      await fetchProducts() // Refresh products list including new one
       toast.success('Product added successfully!', { icon: '🎉' })
-      setIsAddProductModalOpen(false)
-      setNewProduct({
+      setIsAddProductModalOpen(false) // Close modal
+      setNewProduct({ // Reset form
         user_id: currentUserId,
         name: '',
         sku: '',
@@ -180,11 +307,15 @@ function InventoryPage() {
         category: ''
       })
     } catch (error) {
-          toast.error('Failed to add product')
-          console.error(error)
-        }
+      toast.error('Failed to add product')
+      console.error('Error adding product:', error)
+    }
   }
 
+  /**
+   * Handles the submission for adding an inventory transaction (updating stock).
+   * Recomputes and updates hash along with stock.
+   */
   const handleAddTransaction = async (e: FormEvent) => {
     e.preventDefault()
     if (!newTransaction.productId || newTransaction.quantity <= 0) {
@@ -197,6 +328,7 @@ function InventoryPage() {
         toast.error('Product not found')
         return
       }
+
       let updatedStock = productToUpdate.stock
       if (newTransaction.transactionType === 'Add') {
         updatedStock += newTransaction.quantity
@@ -209,17 +341,30 @@ function InventoryPage() {
       } else if (newTransaction.transactionType === 'Adjust') {
         updatedStock = newTransaction.quantity
       }
-      // Update product stock
+
+      // Prepare updated data for re-hashing
+      const updatedProductDataForHash: ProductHashData = {
+        name: productToUpdate.name,
+        sku: productToUpdate.sku,
+        stock: updatedStock, // Use the new stock value for hashing
+        unitPrice: productToUpdate.unitPrice,
+        category: productToUpdate.category || ''
+      }
+      const updatedHash = await hashProductData(updatedProductDataForHash) // Recompute hash
+
+      // Update product document in Appwrite (including new stock and hash)
       await databases.updateDocument(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
         process.env.NEXT_PUBLIC_PRODUCTS_COLLECTION_ID!,
         productToUpdate.$id,
         {
           stock: updatedStock,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          hash: updatedHash, // Update the hash
         }
       )
-      // Log to inventory_log
+
+      // Create a log entry for the inventory transaction
       await databases.createDocument(
         process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!,
         process.env.NEXT_PUBLIC_INVENTORY_LOG_COLLECTION_ID!,
@@ -233,46 +378,68 @@ function InventoryPage() {
           created_at: new Date().toISOString()
         }
       )
-      await fetchProducts()
-      await fetchLogs()
+
+      await fetchProducts() // Refresh products list
+      await fetchLogs() // Refresh logs
       toast.success('Transaction recorded successfully!', { icon: '📦' })
-      setIsAddTransactionModalOpen(false)
-      setNewTransaction({
+      setIsAddTransactionModalOpen(false) // Close modal
+      setNewTransaction({ // Reset form
         productId: '',
         quantity: 0,
         transactionType: 'Add',
         reason: ''
       })
     } catch (error) {
-          toast.error('Failed to add product')
-          console.error(error)
-        }
-  }
-
-  // Add camera scanning functionality
-  const startScanning = async () => {
-    try {
-      setScanningStatus('scanning')
-      // Here you would integrate with a barcode/QR code scanning library
-      // For example, using QuaggaJS or similar
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      // Process the video stream for product identification
-      // This is a placeholder for the actual scanning logic
-      setScanningStatus('success')
-    } catch (error) {
-      console.error('Error accessing camera:', error)
-      setScanningStatus('error')
-      toast.error('Failed to access camera')
+      toast.error('Failed to record transaction')
+      console.error('Error handling transaction:', error)
     }
   }
 
+  /**
+   * Placeholder for starting the camera scanning process.
+   * You'd integrate a library like QuaggaJS or similar here.
+   */
+  const startScanning = async () => {
+    setScanningStatus('scanning')
+    try {
+      // This is a placeholder. Real implementation would use a scanning library.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      // You'd attach this stream to a video element and process frames for codes.
+      // Example: Quagga.init({ inputStream: { name: "Live", type: "LiveStream", target: videoElement } }, ...)
+
+      // Simulate a successful scan after a delay
+      setTimeout(() => {
+        const dummyScannedProduct = products.length > 0 ? products[0] : null // Pick first product for demo
+        if (dummyScannedProduct) {
+          setScannedProduct(dummyScannedProduct)
+          setScanningStatus('success')
+          toast.success(`Scanned: ${dummyScannedProduct.name}`)
+        } else {
+          setScanningStatus('error')
+          toast.error('No products available to simulate scan.')
+        }
+      }, 2000)
+
+      // Cleanup function for camera stream (important for real implementation)
+      // stream.getTracks().forEach(track => track.stop());
+
+    } catch (error) {
+      console.error('Error accessing camera:', error)
+      setScanningStatus('error')
+      toast.error('Failed to access camera. Please check permissions.')
+    }
+  }
+
+
+  // --- Render JSX ---
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <Toaster position="top-right" />
-        
+
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {/* Total Products Card */}
           <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
             <div className="flex justify-between items-center mb-3">
               <CubeIcon className="h-6 w-6 text-indigo-500" />
@@ -281,54 +448,64 @@ function InventoryPage() {
             <div className="text-2xl font-bold text-white">{products.length}</div>
             <div className="text-xs text-green-500 mt-1">Active inventory items</div>
           </div>
+          {/* Total Stock Card */}
           <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
             <div className="flex justify-between items-center mb-3">
               <ArrowUpIcon className="h-6 w-6 text-green-500" />
               <span className="text-xs text-gray-400">Total Stock</span>
             </div>
-            <div className="text-2xl font-bold text-white">{products.reduce((total, product) => total + product.stock, 0)}</div>
+            <div className="text-2xl font-bold text-white">
+              {products.reduce((total, product) => total + (product.stock ?? 0), 0).toLocaleString()}
+            </div>
             <div className="text-xs text-green-500 mt-1">Units in inventory</div>
           </div>
+          {/* Total Value Card */}
           <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
             <div className="flex justify-between items-center mb-3">
               <CurrencyDollarIcon className="h-6 w-6 text-yellow-500" />
               <span className="text-xs text-gray-400">Total Value</span>
             </div>
-            <div className="text-2xl font-bold text-white">${products.reduce((total, product) => total + (product.stock * product.unitPrice), 0).toLocaleString()}</div>
+            <div className="text-2xl font-bold text-white">
+              ${products.reduce((total, product) => total + ((product.stock ?? 0) * (product.unitPrice ?? 0)), 0).toLocaleString()}
+            </div>
             <div className="text-xs text-yellow-500 mt-1">Current inventory value</div>
           </div>
+          {/* Low Stock Items Card */}
           <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
             <div className="flex justify-between items-center mb-3">
               <ArrowDownIcon className="h-6 w-6 text-red-500" />
               <span className="text-xs text-gray-400">Low Stock Items</span>
             </div>
-            <div className="text-2xl font-bold text-white">{products.filter(p => p.stock < 10).length}</div>
+            <div className="text-2xl font-bold text-white">{products.filter(p => (p.stock ?? 0) < 10 && (p.stock ?? 0) > 0).length}</div>
             <div className="text-xs text-red-500 mt-1">Items below threshold</div>
           </div>
+          {/* Out of Stock Items Card */}
           <div className="bg-gray-800/50 p-4 rounded-lg shadow-lg backdrop-blur-sm border border-white/10">
             <div className="flex justify-between items-center mb-3">
-              <TagIcon className="h-6 w-6 text-purple-500" />
-              <span className="text-xs text-gray-400">Unique SKUs</span>
+              <ArrowDownIcon className="h-6 w-6 text-red-500" />
+              <span className="text-xs text-gray-400">Out of Stock</span>
             </div>
-            <div className="text-2xl font-bold text-white">{new Set(products.map(p => p.sku)).size}</div>
-            <div className="text-xs text-purple-500 mt-1">Active product variants</div>
+            <div className="text-2xl font-bold text-white">{products.filter(p => (p.stock ?? 0) === 0).length}</div>
+            <div className="text-xs text-red-500 mt-1">Items out of stock</div>
           </div>
         </div>
 
-        {/* Search and Add Product */}
+        {/* Search, Filter and Action Buttons */}
         <div className="bg-gray-800/50 rounded-lg p-4 sm:p-6 shadow-lg backdrop-blur-sm border border-white/10">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            {/* Search Input */}
             <div className="relative w-full md:w-96">
               <input
                 type="text"
-                placeholder="Search products..."
+                placeholder="Search products by name or SKU..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 pl-10 rounded bg-gray-900/50 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-4 py-2 pl-10 rounded bg-gray-900/50 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
             </div>
-            <div className="flex gap-2">
+            {/* Action Buttons */}
+            <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => setIsScanningModalOpen(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
@@ -360,6 +537,7 @@ function InventoryPage() {
                   <th className="px-4 py-2 text-gray-400 font-medium">Stock</th>
                   <th className="px-4 py-2 text-gray-400 font-medium">Unit Price</th>
                   <th className="px-4 py-2 text-gray-400 font-medium">Total Value</th>
+                  <th className="px-4 py-2 text-gray-400 font-medium">Integrity</th>
                   <th className="px-4 py-2 text-gray-400 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -370,16 +548,33 @@ function InventoryPage() {
                     <td className="px-4 py-2">{product.name}</td>
                     <td className="px-4 py-2">{product.category || 'N/A'}</td>
                     <td className="px-4 py-2">
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        product.stock < 10 ? 'bg-red-500/20 text-red-400' :
-                        product.stock < 50 ? 'bg-yellow-500/20 text-yellow-400' :
-                        'bg-green-500/20 text-green-400'
-                      }`}>
-                        {product.stock}
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${
+                          (product.stock ?? 0) === 0
+                            ? 'bg-red-500/20 text-red-400'
+                            : (product.stock ?? 0) < 10
+                            ? 'bg-orange-500/20 text-orange-400'
+                            : 'bg-green-500/20 text-green-400'
+                        }`}
+                      >
+                        {typeof product.stock === 'number' ? product.stock : 'N/A'}
                       </span>
                     </td>
-                    <td className="px-4 py-2">${product.unitPrice.toLocaleString()}</td>
-                    <td className="px-4 py-2">${(product.stock * product.unitPrice).toLocaleString()}</td>
+                    <td className="px-4 py-2">
+                      ${typeof product.unitPrice === 'number' ? product.unitPrice.toLocaleString() : 'N/A'}
+                    </td>
+                    <td className="px-4 py-2">
+                      ${typeof product.unitPrice === 'number' && typeof product.stock === 'number'
+                        ? (product.unitPrice * product.stock).toLocaleString()
+                        : 'N/A'}
+                    </td>
+                    <td className="px-4 py-2">
+                      {verifiedIds.has(product.$id) ? (
+                        <CheckCircleIcon className="inline h-5 w-5 text-green-500" title="Verified" />
+                      ) : (
+                        <ExclamationCircleIcon className="inline h-5 w-5 text-red-500" title="Integrity check failed" />
+                      )}
+                    </td>
                     <td className="px-4 py-2">
                       <button
                         onClick={() => {
@@ -411,8 +606,9 @@ function InventoryPage() {
               <h2 className="text-xl font-bold mb-4">Add New Product</h2>
               <form onSubmit={handleAddProduct} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                  <label htmlFor="productName" className="block text-sm font-medium text-gray-400 mb-1">Name</label>
                   <input
+                    id="productName"
                     type="text"
                     value={newProduct.name}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
@@ -421,8 +617,9 @@ function InventoryPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">SKU</label>
+                  <label htmlFor="productSKU" className="block text-sm font-medium text-gray-400 mb-1">SKU</label>
                   <input
+                    id="productSKU"
                     type="text"
                     value={newProduct.sku}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
@@ -431,8 +628,9 @@ function InventoryPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                  <label htmlFor="productCategory" className="block text-sm font-medium text-gray-400 mb-1">Category</label>
                   <input
+                    id="productCategory"
                     type="text"
                     value={newProduct.category}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
@@ -440,8 +638,9 @@ function InventoryPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Initial Stock</label>
+                  <label htmlFor="initialStock" className="block text-sm font-medium text-gray-400 mb-1">Initial Stock</label>
                   <input
+                    id="initialStock"
                     type="number"
                     value={newProduct.stock}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, stock: parseInt(e.target.value) }))}
@@ -451,8 +650,9 @@ function InventoryPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Unit Price</label>
+                  <label htmlFor="unitPrice" className="block text-sm font-medium text-gray-400 mb-1">Unit Price</label>
                   <input
+                    id="unitPrice"
                     type="number"
                     value={newProduct.unitPrice}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, unitPrice: parseFloat(e.target.value) }))}
@@ -486,8 +686,9 @@ function InventoryPage() {
               <h2 className="text-xl font-bold mb-4">Update Stock</h2>
               <form onSubmit={handleAddTransaction} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Product</label>
+                  <label htmlFor="transactionProduct" className="block text-sm font-medium text-gray-400 mb-1">Product</label>
                   <select
+                    id="transactionProduct"
                     value={newTransaction.productId}
                     onChange={(e) => setNewTransaction(prev => ({ ...prev, productId: e.target.value }))}
                     className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -496,14 +697,15 @@ function InventoryPage() {
                     <option value="">Select a product</option>
                     {products.map(product => (
                       <option key={product.$id} value={product.$id}>
-                        {product.name} (Current Stock: {product.stock})
+                        {product.name} (Current Stock: {typeof product.stock === 'number' ? product.stock : 'N/A'})
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Transaction Type</label>
+                  <label htmlFor="transactionType" className="block text-sm font-medium text-gray-400 mb-1">Transaction Type</label>
                   <select
+                    id="transactionType"
                     value={newTransaction.transactionType}
                     onChange={(e) => setNewTransaction(prev => ({ ...prev, transactionType: e.target.value as 'Add' | 'Remove' | 'Adjust' }))}
                     className="w-full px-3 py-2 rounded bg-gray-800 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -511,12 +713,13 @@ function InventoryPage() {
                   >
                     <option value="Add">Add Stock</option>
                     <option value="Remove">Remove Stock</option>
-                    <option value="Adjust">Adjust Stock</option>
+                    <option value="Adjust">Adjust Stock (set to exact quantity)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Quantity</label>
+                  <label htmlFor="transactionQuantity" className="block text-sm font-medium text-gray-400 mb-1">Quantity</label>
                   <input
+                    id="transactionQuantity"
                     type="number"
                     value={newTransaction.quantity}
                     onChange={(e) => setNewTransaction(prev => ({ ...prev, quantity: parseInt(e.target.value) }))}
@@ -526,8 +729,9 @@ function InventoryPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1">Reason (Optional)</label>
+                  <label htmlFor="transactionReason" className="block text-sm font-medium text-gray-400 mb-1">Reason (Optional)</label>
                   <input
+                    id="transactionReason"
                     type="text"
                     value={newTransaction.reason}
                     onChange={(e) => setNewTransaction(prev => ({ ...prev, reason: e.target.value }))}
@@ -553,7 +757,8 @@ function InventoryPage() {
                 className="absolute top-2 right-2 text-gray-400 hover:text-white"
                 onClick={() => {
                   setIsScanningModalOpen(false)
-                  setScanningStatus('idle')
+                  setScanningStatus('idle') // Reset status on close
+                  setScannedProduct(null) // Clear scanned product on close
                 }}
               >
                 &times;
@@ -579,6 +784,10 @@ function InventoryPage() {
                           <CameraIcon className="h-12 w-12" />
                         </div>
                       </div>
+                      {/* Placeholder for video stream - in a real app, this would be a <video> element */}
+                      <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+                         {/* This div would be replaced by your video stream for scanning */}
+                      </div>
                     </div>
                     <p className="text-gray-400">Scanning for product code...</p>
                   </div>
@@ -589,23 +798,25 @@ function InventoryPage() {
                     <div className="space-y-2">
                       <p><span className="text-gray-400">SKU:</span> {scannedProduct.sku}</p>
                       <p><span className="text-gray-400">Name:</span> {scannedProduct.name}</p>
-                      <p><span className="text-gray-400">Stock:</span> {scannedProduct.stock}</p>
+                      <p><span className="text-gray-400">Stock:</span> {typeof scannedProduct.stock === 'number' ? scannedProduct.stock : 'N/A'}</p>
                       <button
                         onClick={() => {
                           setNewTransaction(prev => ({ ...prev, productId: scannedProduct.$id }))
                           setIsAddTransactionModalOpen(true)
-                          setIsScanningModalOpen(false)
+                          setIsScanningModalOpen(false) // Close scanning modal
+                          setScanningStatus('idle') // Reset status
+                          setScannedProduct(null) // Clear scanned product
                         }}
                         className="w-full mt-4 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors"
                       >
-                        Update Stock
+                        Update Stock for this Product
                       </button>
                     </div>
                   </div>
                 )}
                 {scanningStatus === 'error' && (
                   <div className="text-center text-red-500">
-                    <p>Failed to access camera. Please check your permissions.</p>
+                    <p>Failed to access camera or product not found. Please try again.</p>
                     <button
                       onClick={() => setScanningStatus('idle')}
                       className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
